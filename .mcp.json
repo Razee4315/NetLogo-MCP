@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "netlogo": {
+      "command": "netlogo-mcp",
+      "args": [],
+      "env": {
+        "NETLOGO_HOME": "C:/Program Files/NetLogo 7.0.3",
+        "JAVA_HOME": "C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot",
+        "NETLOGO_MODELS_DIR": "C:/Users/saqla/Desktop/MCP_NetLogo/models"
+      }
+    }
+  }
+}
