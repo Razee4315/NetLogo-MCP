@@ -59,3 +59,15 @@ def get_models_dir() -> Path:
     p = Path(val)
     p.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def get_exports_dir() -> Path:
+    """Return the directory where exported images and worlds are saved."""
+    val = os.environ.get(
+        "NETLOGO_EXPORTS_DIR",
+        str(Path(__file__).resolve().parent.parent.parent / "exports"),
+    )
+    p = Path(val)
+    (p / "views").mkdir(parents=True, exist_ok=True)
+    (p / "worlds").mkdir(parents=True, exist_ok=True)
+    return p

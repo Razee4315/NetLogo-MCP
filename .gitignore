@@ -25,7 +25,6 @@ ENV/
 
 # NetLogo temp files
 *.nlogo~
-*.csv
 
 # OS files
 .DS_Store
@@ -38,5 +37,9 @@ desktop.ini
 .coverage
 htmlcov/
 
-# Temp exported images (export_view outputs)
-*.tmp.png
+# Exports (keep folder structure, ignore actual exports)
+exports/views/*.png
+exports/worlds/*.csv
+
+# Auto-created models (from create_model tool)
+models/_created_*.nlogox

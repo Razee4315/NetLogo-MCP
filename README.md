@@ -1,6 +1,5 @@
 <p align="center">
-  <img src="https://upload.wikimedia.org/wikipedia/en/thumb/d/df/NetLogo_Logo_%28no_text%29.svg/1200px-NetLogo_Logo_%28no_text%29.svg.png" width="80" alt="NetLogo MCP Logo">
-  <h1 align="center">NetLogo MCP</h1>
+  <img src="logo.svg" width="250" alt="NetLogo MCP">
 </p>
 
 The first MCP (Model Context Protocol) server for NetLogo — enabling AI assistants like Claude to create, run, and analyze agent-based models through natural conversation.

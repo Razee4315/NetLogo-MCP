@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 64" width="250" height="64">
+  <!-- Minimalist Dark Background (Safe for both light & dark mode viewing) -->
+  <rect width="250" height="64" rx="12" fill="#0F172A" />
+  
+  <g transform="translate(8, 0)">
+    <!-- 1. The NetLogo Agent (Clean, minimalist outline) -->
+    <path d="M 32 12 L 52 48 L 32 40 L 12 48 Z" 
+          fill="none" 
+          stroke="#10B981" 
+          stroke-width="3" 
+          stroke-linejoin="round" />
+  </g>
+
+  <!-- Clean Typography -->
+  <text x="74" y="41" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="700">
+    <tspan fill="#F8FAFC">NetLogo </tspan>
+    <tspan fill="#8B5CF6">MCP</tspan>
+  </text>
+</svg>

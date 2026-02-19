@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import traceback
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ from fastmcp import Context
 from fastmcp.exceptions import ToolError
 from fastmcp.utilities.types import Image
 
-from .config import get_models_dir
+from .config import get_exports_dir, get_models_dir
 from .server import mcp
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -263,9 +264,9 @@ async def export_view(ctx: Context) -> Image:
     """
     nl = _require_model(ctx)
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-    tmp.close()
-    export_path = tmp.name.replace("\\", "/")
+    views_dir = get_exports_dir() / "views"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    export_path = str(views_dir / f"view_{timestamp}.png").replace("\\", "/")
 
     try:
         nl.command(f'export-view "{export_path}"')
@@ -290,19 +291,18 @@ async def create_model(code: str, ctx: Context) -> str:
     if not code.strip().startswith("<?xml") and "<model" not in code[:200]:
         code = _wrap_nlogox(code)
 
-    # Write to a temp file and load
-    tmp = tempfile.NamedTemporaryFile(
-        suffix=".nlogox", delete=False, mode="w", encoding="utf-8"
-    )
-    tmp.write(code)
-    tmp.close()
+    # Write to models directory and load
+    models_dir = get_models_dir()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_path = models_dir / f"_created_{timestamp}.nlogox"
+    model_path.write_text(code, encoding="utf-8")
 
     try:
-        nl.load_model(tmp.name.replace("\\", "/"))
+        nl.load_model(str(model_path).replace("\\", "/"))
     except Exception as e:
         raise _wrap_netlogo_error(e)
 
-    return "Model created and loaded from temp file."
+    return f"Model created and loaded: {model_path}"
 
 
 def _wrap_nlogox(procedures: str) -> str:
@@ -421,9 +421,9 @@ async def export_world(ctx: Context) -> str:
     """
     nl = _require_model(ctx)
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w")
-    tmp.close()
-    export_path = tmp.name.replace("\\", "/")
+    worlds_dir = get_exports_dir() / "worlds"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    export_path = str(worlds_dir / f"world_{timestamp}.csv").replace("\\", "/")
 
     try:
         nl.command(f'export-world "{export_path}"')
