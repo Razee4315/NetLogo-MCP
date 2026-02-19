@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model version="NetLogo 7.0.3" snapToGrid="false">
+  <code>breed [fish a-fish]
+breed [sharks shark]
+
+fish-own [energy]
+sharks-own [energy]
+
+to setup
+  clear-all
+
+  create-fish 120 [
+    setxy random-xcor random-ycor
+    set color cyan
+    set shape "circle"
+    set size 1
+    set energy 10 + random 10
+  ]
+
+  create-sharks 10 [
+    setxy random-xcor random-ycor
+    set color red
+    set shape "default"
+    set size 2
+    set energy 20 + random 10
+  ]
+
+  ask patches [ set pcolor blue - 3 ]
+  reset-ticks
+end
+
+to go
+  if not any? fish and not any? sharks [ stop ]
+
+  ask fish [
+    right random 50 - 25
+    forward 0.8
+    set energy energy - 0.5
+    if energy &gt; 18 [
+      set energy energy / 2
+      hatch 1 [ right random 360 ]
+    ]
+    if energy &lt;= 0 [ die ]
+    set energy energy + 0.8
+  ]
+
+  ask sharks [
+    right random 50 - 25
+    forward 1
+    set energy energy - 0.8
+    let prey one-of fish in-radius 1
+    if prey != nobody [
+      ask prey [ die ]
+      set energy energy + 8
+    ]
+    if energy &gt; 40 [
+      set energy energy / 2
+      hatch 1 [ right random 360 ]
+    ]
+    if energy &lt;= 0 [ die ]
+  ]
+
+  tick
+end</code>
+  <widgets>
+    <view x="210" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="430" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="430" tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16" minPxcor="-16"></view>
+  </widgets>
+  <info><![CDATA[## WHAT IS IT?
+
+A model created via NetLogo MCP Server.]]></info>
+  <turtleShapes>
+    <shape name="default" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="5"></point>
+        <point x="40" y="250"></point>
+        <point x="150" y="205"></point>
+        <point x="260" y="250"></point>
+      </polygon>
+    </shape>
+    <shape name="circle" rotatable="false" editableColorIndex="0">
+      <circle color="-1920102913" filled="true" marked="true" x="0" y="0" diameter="300"></circle>
+    </shape>
+  </turtleShapes>
+  <linkShapes>
+    <shape name="default" curviness="0.0">
+      <lines>
+        <line x="-0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+        <line x="0.0" visible="true">
+          <dash value="1.0"></dash>
+          <dash value="0.0"></dash>
+        </line>
+        <line x="0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+      </lines>
+      <indicator>
+        <shape name="link direction" rotatable="true" editableColorIndex="0">
+          <line endX="90" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+          <line endX="210" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+        </shape>
+      </indicator>
+    </shape>
+  </linkShapes>
+</model>

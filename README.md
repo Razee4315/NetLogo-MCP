@@ -33,6 +33,7 @@ The server runs NetLogo in headless mode (no GUI) as a background Java process. 
 - **Model Library** — Browse and load `.nlogo`/`.nlogox` files from a models directory
 - **Built-in References** — NetLogo primitives and programming guide as MCP resources
 - **Prompt Templates** — Pre-built workflows for model analysis, ABM creation, and parameter sweeps
+- **Live GUI Mode** — Optional: open a real NetLogo window to watch simulations run in real-time
 
 ## Tools
 
@@ -106,14 +107,26 @@ Add to your project's `.mcp.json`:
       "env": {
         "NETLOGO_HOME": "C:/Program Files/NetLogo 7.0.3",
         "JAVA_HOME": "C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot",
-        "NETLOGO_MODELS_DIR": "C:/path/to/NetLogo_MCP/models"
+        "NETLOGO_MODELS_DIR": "C:/path/to/NetLogo_MCP/models",
+        "NETLOGO_GUI": "true"
       }
     }
   }
 }
 ```
 
-Then restart Claude Code. Verify with `/mcp` — the netlogo server should appear with 10 tools.
+Set `NETLOGO_GUI` to `"true"` to open a live NetLogo window, or `"false"` (default) for headless mode.
+
+Then restart Claude Code. Verify with `/mcp` — the netlogo server should appear with 12 tools.
+
+### Headless vs GUI Mode
+
+| Mode | `NETLOGO_GUI` | What Happens |
+|------|---------------|-------------|
+| **Headless** (default) | `"false"` | No window. Fast. See snapshots via `export_view` in chat. |
+| **Live GUI** | `"true"` | Opens a NetLogo window. Watch simulations run in real-time. |
+
+> **Note:** GUI mode runs NetLogo on a separate thread (`thd=True`) so the MCP server stays responsive. The mode is set at startup — to switch, change the env var and restart Claude Code.
 
 ## Quick Start
 

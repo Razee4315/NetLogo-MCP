@@ -61,6 +61,12 @@ def get_models_dir() -> Path:
     return p
 
 
+def get_gui_mode() -> bool:
+    """Return True if the server should launch with a live NetLogo GUI window."""
+    val = os.environ.get("NETLOGO_GUI", "false").lower()
+    return val in ("true", "1", "yes")
+
+
 def get_exports_dir() -> Path:
     """Return the directory where exported images and worlds are saved."""
     val = os.environ.get(
