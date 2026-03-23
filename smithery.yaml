@@ -1,0 +1,31 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required:
+      - NETLOGO_HOME
+    properties:
+      NETLOGO_HOME:
+        type: string
+        description: "Path to NetLogo installation directory (e.g. C:/Program Files/NetLogo 7.0.3)"
+      JAVA_HOME:
+        type: string
+        description: "Path to Java JDK installation directory (JDK 11+)"
+      NETLOGO_MODELS_DIR:
+        type: string
+        description: "Directory for .nlogo/.nlogox model files"
+      NETLOGO_GUI:
+        type: string
+        default: "false"
+        description: "Set to 'true' to open a live NetLogo window, 'false' for headless mode"
+  commandFunction: |-
+    (config) => ({
+      command: 'netlogo-mcp',
+      args: [],
+      env: {
+        NETLOGO_HOME: config.NETLOGO_HOME,
+        JAVA_HOME: config.JAVA_HOME || '',
+        NETLOGO_MODELS_DIR: config.NETLOGO_MODELS_DIR || '',
+        NETLOGO_GUI: config.NETLOGO_GUI || 'false'
+      }
+    })
