@@ -183,6 +183,9 @@ Tests use mock fixtures — no Java/NetLogo installation needed to run them.
 
 Contributions are welcome! This is an open project — feel free to open issues, suggest features, or submit pull requests.
 
+## Listed on 
+[![MCP Badge](https://lobehub.com/badge/mcp/razee4315-netlogo_mcp)](https://lobehub.com/mcp/razee4315-netlogo_mcp)
+
 ## Author
 
 **Saqlain Abbas**
