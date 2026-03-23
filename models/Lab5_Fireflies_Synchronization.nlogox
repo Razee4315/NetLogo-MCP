@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model version="NetLogo 7.0.3" snapToGrid="false">
+  <code>
+breed [fireflies firefly]
+
+fireflies-own [flashing]
+
+to setup
+  clear-all
+  create-fireflies 100 [
+    set color yellow
+    set size 1.5
+    set flashing false
+    setxy random-xcor random-ycor
+  ]
+  reset-ticks
+end
+
+to go
+  ask fireflies [
+    if flashing = false [
+      let nearby-flashing fireflies in-radius 5 with [flashing = true]
+      if any? nearby-flashing [
+        set flashing true
+        set color red
+      ]
+      if (random 100) &lt; 5 [
+        set flashing true
+        set color red
+      ]
+    ]
+
+    if flashing = true [
+      if (random 100) &lt; 5 [
+        set flashing false
+        set color yellow
+      ]
+    ]
+  ]
+  tick
+end
+</code>
+  <widgets>
+    <view x="210" y="10" width="430" height="430" wrappingAllowedX="true" wrappingAllowedY="true" minPxcor="-16" maxPxcor="16" minPycor="-16" maxPycor="16" patchSize="13.0" frameRate="30.0" fontSize="10" showTickCounter="true" tickCounterLabel="ticks" updateMode="1"></view>
+    <button x="10" y="10" width="190" height="45" kind="Observer" forever="false" disableUntilTicks="false" display="Setup">setup</button>
+    <button x="10" y="65" width="190" height="45" kind="Observer" forever="true" disableUntilTicks="true" display="Go">go</button>
+    <button x="10" y="120" width="190" height="45" kind="Observer" forever="false" disableUntilTicks="false" display="Reset">setup</button>
+    <monitor x="10" y="185" width="190" height="50" precision="0" fontSize="11" display="Ticks">ticks</monitor>
+    <monitor x="10" y="245" width="190" height="50" precision="0" fontSize="11" display="Flashing Now">count fireflies with [flashing = true]</monitor>
+    <monitor x="10" y="305" width="190" height="50" precision="0" fontSize="11" display="Not Flashing">count fireflies with [flashing = false]</monitor>
+  </widgets>
+  <info><![CDATA[## Lab 5: Fireflies Synchronization
+
+Self-Organization Model. Fireflies flash at random intervals and synchronize through local interactions.]]></info>
+  <turtleShapes>
+    <shape name="default" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="5"></point>
+        <point x="40" y="250"></point>
+        <point x="150" y="205"></point>
+        <point x="260" y="250"></point>
+      </polygon>
+    </shape>
+    <shape name="circle" rotatable="false" editableColorIndex="0">
+      <circle color="-1920102913" filled="true" marked="true" x="0" y="0" diameter="300"></circle>
+    </shape>
+  </turtleShapes>
+  <linkShapes>
+    <shape name="default" curviness="0.0">
+      <lines>
+        <line x="-0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+        <line x="0.0" visible="true">
+          <dash value="1.0"></dash>
+          <dash value="0.0"></dash>
+        </line>
+        <line x="0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+      </lines>
+      <indicator>
+        <shape name="link direction" rotatable="true" editableColorIndex="0">
+          <line endX="90" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+          <line endX="210" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+        </shape>
+      </indicator>
+    </shape>
+  </linkShapes>
+</model>

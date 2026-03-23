@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastmcp.prompts import Prompt, Message
+from fastmcp.prompts import Message
 
 from .server import mcp
 

@@ -2,6 +2,14 @@
   <img src="logo.svg" width="250" alt="NetLogo MCP">
 </p>
 
+<p align="center">
+  <a href="https://github.com/Razee4315/NetLogo-MCP/actions/workflows/ci.yml"><img src="https://github.com/Razee4315/NetLogo-MCP/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
+  <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
+  <a href="https://mypy-lang.org/"><img src="https://img.shields.io/badge/types-mypy-blue.svg" alt="mypy"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-source--available-green.svg" alt="License"></a>
+</p>
+
 The first MCP (Model Context Protocol) server for NetLogo — enabling AI assistants like Claude to create, run, and analyze agent-based models through natural conversation.
 
 ## Why NetLogo MCP?
@@ -154,15 +162,19 @@ Once connected, try these in Claude Code:
 
 ```
 NetLogo_MCP/
-├── pyproject.toml              # Package config & dependencies
+├── pyproject.toml              # Package config, linting & type check settings
 ├── .mcp.json                   # Claude Code MCP configuration
+├── .pre-commit-config.yaml     # Pre-commit hooks (ruff, mypy)
+├── .github/workflows/ci.yml    # CI pipeline (lint, type check, test)
+├── CHANGELOG.md                # Version history
 ├── src/
 │   └── netlogo_mcp/
 │       ├── server.py           # FastMCP app, stdout protection, lifespan
-│       ├── tools.py            # All 10 tools
+│       ├── tools.py            # All 12 tools
 │       ├── resources.py        # 3 resources (docs + model source)
 │       ├── prompts.py          # 3 prompts (analyze, create, sweep)
 │       ├── config.py           # Environment variable loading
+│       ├── py.typed            # PEP 561 type marker
 │       └── data/
 │           ├── primitives.md   # NetLogo primitives reference
 │           └── programming_guide.md

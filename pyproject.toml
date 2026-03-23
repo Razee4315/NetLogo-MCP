@@ -21,6 +21,10 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
+    "pytest-cov>=4.0",
+    "ruff>=0.8.0",
+    "mypy>=1.10",
+    "pre-commit>=3.0",
 ]
 
 [project.scripts]
@@ -28,3 +32,53 @@ netlogo-mcp = "netlogo_mcp.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/netlogo_mcp"]
+
+# ── Ruff (linter + formatter) ──────────────────────────────────────────────
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+]
+ignore = [
+    "E501",   # line too long (formatter handles it)
+    "E402",   # module-level import not at top (server.py stdout protection)
+    "SIM105", # contextlib.suppress — less explicit than try/except
+    "TC002",  # TYPE_CHECKING imports — Context needed at runtime by FastMCP
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["netlogo_mcp"]
+
+# ── Mypy (type checker) ────────────────────────────────────────────────────
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+ignore_missing_imports = true
+
+# ── Pytest ──────────────────────────────────────────────────────────────────
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["netlogo_mcp"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
