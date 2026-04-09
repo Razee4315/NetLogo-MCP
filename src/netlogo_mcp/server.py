@@ -19,7 +19,7 @@ from typing import Any, Callable, TypeVar
 
 from fastmcp import FastMCP
 
-from .config import get_jvm_path, get_netlogo_home
+from .config import get_gui_mode, get_jvm_path, get_netlogo_home
 
 logger = logging.getLogger("netlogo_mcp")
 _workspace_lock = Lock()
@@ -60,20 +60,23 @@ def get_or_create_netlogo(lifespan_context: dict[str, Any]) -> Any:
 
             nl_home = get_netlogo_home()
             jvm_path = get_jvm_path()
+            gui = get_gui_mode()
+            mode_str = "GUI (live window)" if gui else "headless"
 
             logger.info(
-                "Starting NetLogo workspace (NETLOGO_HOME=%s, jvm=%s)",
+                "Starting NetLogo workspace in %s mode (NETLOGO_HOME=%s)",
+                mode_str,
                 nl_home,
-                jvm_path,
             )
             nl = pynetlogo.NetLogoLink(
                 netlogo_home=nl_home,
-                gui=False,
+                gui=gui,
+                thd=False,
                 jvm_path=jvm_path,
             )
 
         lifespan_context["netlogo"] = nl
-        logger.info("NetLogo workspace ready")
+        logger.info("NetLogo workspace ready (%s)", mode_str)
         return nl
 
 

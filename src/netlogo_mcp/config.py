@@ -16,16 +16,14 @@ def get_netlogo_home() -> str:
     """Return NETLOGO_HOME path, validated."""
     val = os.environ.get("NETLOGO_HOME", "")
     if not val:
-        raise EnvironmentError(
+        raise OSError(
             "NETLOGO_HOME is not set. "
             "Set it to your NetLogo installation directory, "
             "e.g. C:/Program Files/NetLogo 6.4.0"
         )
     p = Path(val)
     if not p.is_dir():
-        raise EnvironmentError(
-            f"NETLOGO_HOME points to a directory that does not exist: {val}"
-        )
+        raise OSError(f"NETLOGO_HOME points to a directory that does not exist: {val}")
     return str(p)
 
 
@@ -38,9 +36,9 @@ def get_jvm_path() -> str:
     p = Path(java_home)
     # Standard locations for jvm library
     candidates = [
-        p / "bin" / "server" / "jvm.dll",       # Windows
-        p / "lib" / "server" / "libjvm.so",      # Linux
-        p / "lib" / "server" / "libjvm.dylib",   # macOS
+        p / "bin" / "server" / "jvm.dll",  # Windows
+        p / "lib" / "server" / "libjvm.so",  # Linux
+        p / "lib" / "server" / "libjvm.dylib",  # macOS
     ]
     for c in candidates:
         if c.exists():
@@ -59,6 +57,12 @@ def get_models_dir() -> Path:
     p = Path(val)
     p.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def get_gui_mode() -> bool:
+    """Return True if the server should launch with a live NetLogo GUI window."""
+    val = os.environ.get("NETLOGO_GUI", "false").lower()
+    return val in ("true", "1", "yes")
 
 
 def get_exports_dir() -> Path:

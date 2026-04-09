@@ -1,0 +1,341 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model version="NetLogo 7.0.3" snapToGrid="false">
+  <code>
+globals [
+  season
+  season-tick
+]
+
+breed [foragers forager]
+breed [predators predator]
+
+foragers-own [energy my-speed my-vision my-efficiency age]
+predators-own [energy my-speed my-vision age kills]
+patches-own [food-level max-food biome growth-rate]
+
+to setup
+  clear-all
+  set season "Spring"
+  set season-tick 0
+  setup-environment
+  setup-agents
+  reset-ticks
+end
+
+to setup-environment
+  ask patches [
+    (ifelse
+      environment-type = "Gradient" [
+        let w world-width
+        let third floor (w / 3)
+        (ifelse
+          pxcor &lt; (min-pxcor + third) [ set biome 0 ]
+          pxcor &lt; (min-pxcor + 2 * third) [ set biome 1 ]
+          [ set biome 2 ])
+      ]
+      environment-type = "Random" [
+        set biome random 3
+      ]
+      environment-type = "Islands" [
+        set biome 2
+        if distancexy 0 0 &lt; 15 [ set biome 0 ]
+        if distancexy 0 0 &lt; 8 [ set biome 1 ]
+      ]
+      [ ;; Clustered
+        set biome 0
+        if distancexy 10 10 &lt; 11 [ set biome 1 ]
+        if distancexy -10 -10 &lt; 11 [ set biome 2 ]
+      ])
+    (ifelse
+      biome = 0 [ set max-food 100 set growth-rate 1.0 ]
+      biome = 1 [ set max-food 150 set growth-rate 0.5 ]
+      [ set max-food 30 set growth-rate 0.2 ])
+    set food-level random max-food
+    recolor-patch
+  ]
+end
+
+to recolor-patch
+  (ifelse
+    biome = 0 [ set pcolor scale-color green food-level -20 (max-food + 30) ]
+    biome = 1 [ set pcolor scale-color 53 food-level -20 (max-food + 30) ]
+    [ set pcolor scale-color 47 food-level -20 (max-food + 30) ])
+end
+
+to setup-agents
+  create-foragers initial-foragers [
+    set shape "circle"
+    set color cyan
+    set size 1.2
+    setxy random-xcor random-ycor
+    set energy 50 + random 50
+    set my-speed 0.5 + random-float 1.5
+    set my-vision 1 + random-float 5
+    set my-efficiency 0.3 + random-float 0.7
+    set age 0
+  ]
+  if enable-predators? [
+    create-predators initial-predators [
+      set shape "default"
+      set color red
+      set size 1.8
+      setxy random-xcor random-ycor
+      set energy 80 + random 40
+      set my-speed 0.8 + random-float 1.2
+      set my-vision 2 + random-float 6
+      set age 0
+      set kills 0
+    ]
+  ]
+end
+
+to go
+  if not any? foragers and not any? predators [ stop ]
+  if enable-seasons? [
+    set season-tick season-tick + 1
+    if season-tick &gt;= season-length [
+      set season-tick 0
+      next-season
+    ]
+  ]
+  ask patches [
+    let sf seasonal-factor
+    set food-level min (list max-food (food-level + food-regrowth-rate * growth-rate * sf))
+    recolor-patch
+  ]
+  ask foragers [
+    forage
+    set age age + 1
+    set energy energy - forager-metabolism * (0.5 + my-speed * 0.5)
+    if energy &gt; reproduction-energy and random-float 100 &lt; 6 [
+      reproduce-forager
+    ]
+    if energy &lt;= 0 or age &gt; max-age [ die ]
+    set size 0.8 + (min (list energy 150) / 200)
+    set color scale-color cyan energy -20 200
+  ]
+  if enable-predators? [
+    ask predators [
+      hunt
+      set age age + 1
+      set energy energy - predator-metabolism * (0.5 + my-speed * 0.5)
+      if energy &gt; reproduction-energy * 1.5 and random-float 100 &lt; 3 [
+        reproduce-predator
+      ]
+      if energy &lt;= 0 or age &gt; max-age [ die ]
+      set size 1.2 + (min (list energy 200) / 200)
+      set color scale-color red energy -20 250
+    ]
+  ]
+  tick
+end
+
+to-report seasonal-factor
+  if not enable-seasons? [ report 1.0 ]
+  (ifelse
+    season = "Spring" [ report 1.2 ]
+    season = "Summer" [ report 1.5 ]
+    season = "Autumn" [ report 0.7 ]
+    [ report 0.2 ])
+end
+
+to next-season
+  (ifelse
+    season = "Spring" [ set season "Summer" ]
+    season = "Summer" [ set season "Autumn" ]
+    season = "Autumn" [ set season "Winter" ]
+    [ set season "Spring" ])
+end
+
+to forage
+  let fleeing? false
+  if enable-predators? [
+    let threat min-one-of predators in-radius my-vision [distance myself]
+    if threat != nobody and distance threat &lt; my-vision * 0.6 [
+      face threat
+      rt 180
+      fd my-speed * 2.0
+      set fleeing? true
+    ]
+  ]
+  if not fleeing? [
+    let target max-one-of patches in-radius my-vision [food-level]
+    ifelse target != nobody and [food-level] of target &gt; 5 [
+      face target
+      fd min (list my-speed distance target)
+    ] [
+      rt random 51 - 25
+      fd my-speed
+    ]
+  ]
+  if food-level &gt; 0 [
+    let bite min (list (12 * my-efficiency) food-level)
+    set food-level food-level - bite
+    set energy energy + bite * my-efficiency
+  ]
+end
+
+to hunt
+  let prey min-one-of foragers in-radius my-vision [distance myself]
+  ifelse prey != nobody [
+    face prey
+    fd min (list my-speed distance prey)
+    if distance prey &lt; 0.8 [
+      set energy energy + [energy] of prey * 0.4
+      set kills kills + 1
+      ask prey [ die ]
+    ]
+  ] [
+    rt random 91 - 45
+    fd my-speed * 0.5
+  ]
+end
+
+to reproduce-forager
+  set energy energy * 0.5
+  hatch-foragers 1 [
+    set age 0
+    set my-speed max (list 0.1 (my-speed + (random-float 2 - 1) * mutation-rate))
+    set my-vision max (list 0.5 (my-vision + (random-float 2 - 1) * mutation-rate * 3))
+    set my-efficiency min (list 1.0 max (list 0.1 (my-efficiency + (random-float 2 - 1) * mutation-rate)))
+    rt random 360
+    fd 2
+  ]
+end
+
+to reproduce-predator
+  set energy energy * 0.5
+  hatch-predators 1 [
+    set age 0
+    set kills 0
+    set my-speed max (list 0.1 (my-speed + (random-float 2 - 1) * mutation-rate))
+    set my-vision max (list 0.5 (my-vision + (random-float 2 - 1) * mutation-rate * 3))
+    rt random 360
+    fd 2
+  ]
+end
+</code>
+  <widgets>
+    <view x="250" y="10" width="500" height="500" wrappingAllowedX="true" wrappingAllowedY="true" minPxcor="-20" maxPxcor="20" minPycor="-20" maxPycor="20" patchSize="12.0" frameRate="30.0" fontSize="10" showTickCounter="true" tickCounterLabel="ticks" updateMode="1"></view>
+    <button x="5" y="10" width="112" height="45" kind="Observer" forever="false" disableUntilTicks="false" display="Setup">setup</button>
+    <button x="122" y="10" width="118" height="45" kind="Observer" forever="true" disableUntilTicks="true" display="Go">go</button>
+    <chooser x="5" y="65" width="235" height="60" variable="environment-type" display="environment-type" current="0">
+      <choice type="string" value="Gradient"></choice>
+      <choice type="string" value="Random"></choice>
+      <choice type="string" value="Clustered"></choice>
+      <choice type="string" value="Islands"></choice>
+    </chooser>
+    <switch x="5" y="132" width="115" height="40" variable="enable-seasons?" display="enable-seasons?" on="true"></switch>
+    <switch x="125" y="132" width="115" height="40" variable="enable-predators?" display="enable-predators?" on="true"></switch>
+    <slider x="5" y="180" width="235" height="50" direction="Horizontal" variable="initial-foragers" display="initial-foragers" min="10" max="300" default="80.0" step="5"></slider>
+    <slider x="5" y="232" width="235" height="50" direction="Horizontal" variable="initial-predators" display="initial-predators" min="0" max="100" default="5.0" step="1"></slider>
+    <slider x="5" y="284" width="235" height="50" direction="Horizontal" variable="food-regrowth-rate" display="food-regrowth-rate" min="0.0" max="2.0" default="1.0" step="0.05"></slider>
+    <slider x="5" y="336" width="235" height="50" direction="Horizontal" variable="season-length" display="season-length" min="10" max="200" default="50.0" step="5" units="ticks"></slider>
+    <slider x="5" y="388" width="235" height="50" direction="Horizontal" variable="forager-metabolism" display="forager-metabolism" min="0.05" max="1.0" default="0.15" step="0.05"></slider>
+    <slider x="5" y="440" width="235" height="50" direction="Horizontal" variable="predator-metabolism" display="predator-metabolism" min="0.1" max="1.5" default="0.7" step="0.05"></slider>
+    <slider x="5" y="492" width="235" height="50" direction="Horizontal" variable="reproduction-energy" display="reproduction-energy" min="20" max="300" default="80.0" step="10"></slider>
+    <slider x="5" y="544" width="235" height="50" direction="Horizontal" variable="mutation-rate" display="mutation-rate" min="0.0" max="1.0" default="0.2" step="0.05"></slider>
+    <slider x="5" y="596" width="235" height="50" direction="Horizontal" variable="max-age" display="max-age" min="100" max="2000" default="500.0" step="50" units="ticks"></slider>
+    <monitor x="760" y="10" width="165" height="50" precision="0" fontSize="11" display="Season">season</monitor>
+    <monitor x="760" y="65" width="165" height="50" precision="0" fontSize="11" display="Foragers">count foragers</monitor>
+    <monitor x="760" y="120" width="165" height="50" precision="0" fontSize="11" display="Predators">count predators</monitor>
+    <monitor x="760" y="175" width="165" height="50" precision="0" fontSize="11" display="Total Food">round sum [food-level] of patches</monitor>
+    <monitor x="760" y="230" width="165" height="50" precision="2" fontSize="11" display="Avg F-Speed">ifelse-value any? foragers [mean [my-speed] of foragers] [0]</monitor>
+    <monitor x="760" y="285" width="165" height="50" precision="2" fontSize="11" display="Avg F-Vision">ifelse-value any? foragers [mean [my-vision] of foragers] [0]</monitor>
+    <monitor x="760" y="340" width="165" height="50" precision="2" fontSize="11" display="Avg P-Speed">ifelse-value any? predators [mean [my-speed] of predators] [0]</monitor>
+    <monitor x="760" y="395" width="165" height="50" precision="2" fontSize="11" display="Avg P-Vision">ifelse-value any? predators [mean [my-vision] of predators] [0]</monitor>
+    <plot x="5" y="660" width="305" height="200" display="Population Dynamics" xAxis="ticks" yAxis="count" xMin="0.0" xMax="100.0" yMin="0.0" yMax="100.0" autoPlotX="true" autoPlotY="true" legend="true">
+      <setup></setup>
+      <update></update>
+      <pen interval="1.0" mode="0" display="Foragers" color="-16711681" legend="true">
+        <setup></setup>
+        <update>plot count foragers</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="Predators" color="-65536" legend="true">
+        <setup></setup>
+        <update>plot count predators</update>
+      </pen>
+    </plot>
+    <plot x="315" y="660" width="305" height="200" display="Trait Evolution" xAxis="ticks" yAxis="value" xMin="0.0" xMax="100.0" yMin="0.0" yMax="5.0" autoPlotX="true" autoPlotY="true" legend="true">
+      <setup></setup>
+      <update></update>
+      <pen interval="1.0" mode="0" display="F-Speed" color="-16711681" legend="true">
+        <setup></setup>
+        <update>if any? foragers [plot mean [my-speed] of foragers]</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="F-Vision" color="-16776961" legend="true">
+        <setup></setup>
+        <update>if any? foragers [plot mean [my-vision] of foragers]</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="P-Speed" color="-65536" legend="true">
+        <setup></setup>
+        <update>if any? predators [plot mean [my-speed] of predators]</update>
+      </pen>
+    </plot>
+    <plot x="625" y="660" width="305" height="200" display="Food by Biome" xAxis="ticks" yAxis="avg food" xMin="0.0" xMax="100.0" yMin="0.0" yMax="150.0" autoPlotX="true" autoPlotY="true" legend="true">
+      <setup></setup>
+      <update></update>
+      <pen interval="1.0" mode="0" display="Grassland" color="-10899396" legend="true">
+        <setup></setup>
+        <update>if any? patches with [biome = 0] [plot mean [food-level] of patches with [biome = 0]]</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="Forest" color="-13345367" legend="true">
+        <setup></setup>
+        <update>if any? patches with [biome = 1] [plot mean [food-level] of patches with [biome = 1]]</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="Desert" color="-1184463" legend="true">
+        <setup></setup>
+        <update>if any? patches with [biome = 2] [plot mean [food-level] of patches with [biome = 2]]</update>
+      </pen>
+    </plot>
+  </widgets>
+  <info><![CDATA[## Eco-Evolutionary Dynamics in Heterogeneous Landscapes
+
+### Overview
+PhD-level ABM simulating predator-prey coevolution in heterogeneous environments with seasonal dynamics. Foragers (cyan) seek food across 3 biome types while evading predators (red). Both species reproduce with heritable mutable traits.
+
+### Key Features
+- 3 Biome Types: Grassland (green), Forest (dark green), Desert (yellow)
+- 4 Layouts: Gradient, Random, Clustered, Islands
+- Seasonal Cycles with population bottlenecks
+- Heritable Traits: speed, vision, efficiency
+- Predator-Prey Arms Race via coevolution
+- Emergent Carrying Capacity from food dynamics]]></info>
+  <turtleShapes>
+    <shape name="default" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="5"></point>
+        <point x="40" y="250"></point>
+        <point x="150" y="205"></point>
+        <point x="260" y="250"></point>
+      </polygon>
+    </shape>
+    <shape name="circle" rotatable="false" editableColorIndex="0">
+      <circle color="-1920102913" filled="true" marked="true" x="0" y="0" diameter="300"></circle>
+    </shape>
+  </turtleShapes>
+  <linkShapes>
+    <shape name="default" curviness="0.0">
+      <lines>
+        <line x="-0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+        <line x="0.0" visible="true">
+          <dash value="1.0"></dash>
+          <dash value="0.0"></dash>
+        </line>
+        <line x="0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+      </lines>
+      <indicator>
+        <shape name="link direction" rotatable="true" editableColorIndex="0">
+          <line endX="90" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+          <line endX="210" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+        </shape>
+      </indicator>
+    </shape>
+  </linkShapes>
+</model>

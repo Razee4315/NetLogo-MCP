@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -24,7 +21,6 @@ from netlogo_mcp.tools import (
     save_model,
     set_parameter,
 )
-
 
 # ── open_model ───────────────────────────────────────────────────────────────
 
@@ -66,7 +62,7 @@ async def test_command_success(mock_context, mock_nl):
 @pytest.mark.asyncio
 async def test_command_no_model(mock_context, mock_nl):
     mock_nl._model_loaded = False
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="No model is loaded"):
         await command("setup", mock_context)
 
 
@@ -83,7 +79,7 @@ async def test_report_success(mock_context, mock_nl):
 @pytest.mark.asyncio
 async def test_report_no_model(mock_context, mock_nl):
     mock_nl._model_loaded = False
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="No model is loaded"):
         await report("count turtles", mock_context)
 
 
@@ -245,7 +241,7 @@ async def test_save_model_path_traversal(mock_context):
 async def test_save_model_preserves_xml(mock_context, tmp_path, monkeypatch):
     monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: tmp_path)
     xml = '<?xml version="1.0"?><model version="NetLogo 7.0.3"><code>to setup end</code></model>'
-    result = await save_model("full_xml", xml, mock_context)
+    await save_model("full_xml", xml, mock_context)
     saved = (tmp_path / "full_xml.nlogox").read_text(encoding="utf-8")
     assert saved == xml  # raw XML preserved, no double-wrapping
 

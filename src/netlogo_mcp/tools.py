@@ -19,12 +19,12 @@ from .server import get_or_create_netlogo, mcp, run_with_stdout_protection
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _nl(ctx: Context):
+def _nl(ctx: Context):  # type: ignore[type-arg]
     """Get the shared NetLogoLink instance from the lifespan context."""
     try:
         return get_or_create_netlogo(ctx.request_context.lifespan_context)
-    except (AttributeError, KeyError):
-        raise ToolError("NetLogo workspace is not initialized.")
+    except (AttributeError, KeyError) as exc:
+        raise ToolError("NetLogo workspace is not initialized.") from exc
 
 
 def _require_model(ctx: Context):
@@ -34,10 +34,10 @@ def _require_model(ctx: Context):
         # Use max-pxcor as a model-loaded check — it always works,
         # even before reset-ticks (unlike "ticks" which errors pre-setup).
         run_with_stdout_protection(nl.report, "max-pxcor")
-    except Exception:
+    except Exception as exc:
         raise ToolError(
             "No model is loaded. Use open_model or create_model first."
-        )
+        ) from exc
     return nl
 
 
@@ -51,7 +51,7 @@ def _wrap_netlogo_error(e: Exception) -> ToolError:
         "org.nlogo.api.LogoException: ",
     ):
         if msg.startswith(prefix):
-            msg = msg[len(prefix):]
+            msg = msg[len(prefix) :]
 
     hint = (
         "\n\nTip: consult the netlogo://docs/primitives resource "
@@ -100,7 +100,7 @@ async def open_model(path: str, ctx: Context) -> str:
     try:
         run_with_stdout_protection(nl.load_model, str(p).replace("\\", "/"))
     except Exception as e:
-        raise _wrap_netlogo_error(e)
+        raise _wrap_netlogo_error(e) from e
 
     return f"Model loaded: {p.name}"
 
@@ -116,7 +116,7 @@ async def command(netlogo_command: str, ctx: Context) -> str:
     try:
         run_with_stdout_protection(nl.command, netlogo_command)
     except Exception as e:
-        raise _wrap_netlogo_error(e)
+        raise _wrap_netlogo_error(e) from e
     return f"OK: {netlogo_command}"
 
 
@@ -132,7 +132,7 @@ async def report(reporter: str, ctx: Context) -> str:
     try:
         result = run_with_stdout_protection(nl.report, reporter)
     except Exception as e:
-        raise _wrap_netlogo_error(e)
+        raise _wrap_netlogo_error(e) from e
     return json.dumps(_json_safe(result))
 
 
@@ -168,7 +168,7 @@ async def run_simulation(
             go=go_command,
         )
     except Exception as e:
-        raise _wrap_netlogo_error(e)
+        raise _wrap_netlogo_error(e) from e
 
     # results is a DataFrame with reporters as columns, ticks as index
     if isinstance(results, pd.DataFrame):
@@ -207,7 +207,7 @@ async def set_parameter(name: str, value: Any, ctx: Context) -> str:
     try:
         run_with_stdout_protection(nl.command, f"set {name} {nl_val}")
     except Exception as e:
-        raise _wrap_netlogo_error(e)
+        raise _wrap_netlogo_error(e) from e
     return f"OK: {name} = {nl_val}"
 
 
@@ -244,7 +244,7 @@ async def get_world_state(ctx: Context) -> str:
             ),
         }
     except Exception as e:
-        raise _wrap_netlogo_error(e)
+        raise _wrap_netlogo_error(e) from e
     return json.dumps(state, indent=2)
 
 
@@ -262,13 +262,10 @@ async def get_patch_data(attribute: str, ctx: Context) -> str:
     try:
         data = run_with_stdout_protection(nl.patch_report, attribute)
     except Exception as e:
-        raise _wrap_netlogo_error(e)
+        raise _wrap_netlogo_error(e) from e
 
     # patch_report returns a DataFrame indexed by (pxcor, pycor)
-    if isinstance(data, pd.DataFrame):
-        grid = data.values.tolist()
-    else:
-        grid = _json_safe(data)
+    grid = data.values.tolist() if isinstance(data, pd.DataFrame) else _json_safe(data)
 
     return json.dumps(grid)
 
@@ -288,7 +285,7 @@ async def export_view(ctx: Context) -> Image:
     try:
         run_with_stdout_protection(nl.command, f'export-view "{export_path}"')
     except Exception as e:
-        raise _wrap_netlogo_error(e)
+        raise _wrap_netlogo_error(e) from e
 
     return Image(path=export_path)
 
@@ -320,7 +317,7 @@ async def create_model(code: str, ctx: Context) -> str:
             str(model_path).replace("\\", "/"),
         )
     except Exception as e:
-        raise _wrap_netlogo_error(e)
+        raise _wrap_netlogo_error(e) from e
 
     return f"Model created and loaded: {model_path}"
 
@@ -329,9 +326,10 @@ def _wrap_nlogox(procedures: str) -> str:
     """Wrap raw NetLogo procedure code in a minimal .nlogox XML envelope."""
     # Escape XML special chars in the code for safe embedding
     import xml.sax.saxutils as saxutils
+
     escaped = saxutils.escape(procedures)
 
-    return f'''<?xml version="1.0" encoding="utf-8"?>
+    return f"""<?xml version="1.0" encoding="utf-8"?>
 <model version="NetLogo 7.0.3" snapToGrid="false">
   <code>{escaped}</code>
   <widgets>
@@ -378,7 +376,7 @@ A model created via NetLogo MCP Server.]]></info>
     </shape>
   </linkShapes>
 </model>
-'''
+"""
 
 
 @mcp.tool()
@@ -448,6 +446,6 @@ async def export_world(ctx: Context) -> str:
     try:
         run_with_stdout_protection(nl.command, f'export-world "{export_path}"')
     except Exception as e:
-        raise _wrap_netlogo_error(e)
+        raise _wrap_netlogo_error(e) from e
 
     return f"World exported to {export_path}"
