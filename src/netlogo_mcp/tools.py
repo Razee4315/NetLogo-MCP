@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
-import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -16,7 +14,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.utilities.types import Image
 
 from .config import get_exports_dir, get_models_dir
-from .server import mcp
+from .server import get_or_create_netlogo, mcp, run_with_stdout_protection
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -24,7 +22,7 @@ from .server import mcp
 def _nl(ctx: Context):
     """Get the shared NetLogoLink instance from the lifespan context."""
     try:
-        return ctx.request_context.lifespan_context["netlogo"]
+        return get_or_create_netlogo(ctx.request_context.lifespan_context)
     except (AttributeError, KeyError):
         raise ToolError("NetLogo workspace is not initialized.")
 
@@ -35,7 +33,7 @@ def _require_model(ctx: Context):
     try:
         # Use max-pxcor as a model-loaded check — it always works,
         # even before reset-ticks (unlike "ticks" which errors pre-setup).
-        nl.report("max-pxcor")
+        run_with_stdout_protection(nl.report, "max-pxcor")
     except Exception:
         raise ToolError(
             "No model is loaded. Use open_model or create_model first."
@@ -100,7 +98,7 @@ async def open_model(path: str, ctx: Context) -> str:
         raise ToolError(f"Not a .nlogo/.nlogox file: {p}")
 
     try:
-        nl.load_model(str(p).replace("\\", "/"))
+        run_with_stdout_protection(nl.load_model, str(p).replace("\\", "/"))
     except Exception as e:
         raise _wrap_netlogo_error(e)
 
@@ -116,7 +114,7 @@ async def command(netlogo_command: str, ctx: Context) -> str:
     """
     nl = _require_model(ctx)
     try:
-        nl.command(netlogo_command)
+        run_with_stdout_protection(nl.command, netlogo_command)
     except Exception as e:
         raise _wrap_netlogo_error(e)
     return f"OK: {netlogo_command}"
@@ -132,7 +130,7 @@ async def report(reporter: str, ctx: Context) -> str:
     """
     nl = _require_model(ctx)
     try:
-        result = nl.report(reporter)
+        result = run_with_stdout_protection(nl.report, reporter)
     except Exception as e:
         raise _wrap_netlogo_error(e)
     return json.dumps(_json_safe(result))
@@ -163,7 +161,12 @@ async def run_simulation(
     nl = _require_model(ctx)
 
     try:
-        results = nl.repeat_report(reporters, ticks, go=go_command)
+        results = run_with_stdout_protection(
+            nl.repeat_report,
+            reporters,
+            ticks,
+            go=go_command,
+        )
     except Exception as e:
         raise _wrap_netlogo_error(e)
 
@@ -202,7 +205,7 @@ async def set_parameter(name: str, value: Any, ctx: Context) -> str:
         nl_val = str(value)
 
     try:
-        nl.command(f"set {name} {nl_val}")
+        run_with_stdout_protection(nl.command, f"set {name} {nl_val}")
     except Exception as e:
         raise _wrap_netlogo_error(e)
     return f"OK: {name} = {nl_val}"
@@ -217,14 +220,28 @@ async def get_world_state(ctx: Context) -> str:
     nl = _require_model(ctx)
     try:
         state = {
-            "ticks": _json_safe(nl.report("ticks")),
-            "turtle_count": _json_safe(nl.report("count turtles")),
-            "patch_count": _json_safe(nl.report("count patches")),
-            "link_count": _json_safe(nl.report("count links")),
-            "min_pxcor": _json_safe(nl.report("min-pxcor")),
-            "max_pxcor": _json_safe(nl.report("max-pxcor")),
-            "min_pycor": _json_safe(nl.report("min-pycor")),
-            "max_pycor": _json_safe(nl.report("max-pycor")),
+            "ticks": _json_safe(run_with_stdout_protection(nl.report, "ticks")),
+            "turtle_count": _json_safe(
+                run_with_stdout_protection(nl.report, "count turtles")
+            ),
+            "patch_count": _json_safe(
+                run_with_stdout_protection(nl.report, "count patches")
+            ),
+            "link_count": _json_safe(
+                run_with_stdout_protection(nl.report, "count links")
+            ),
+            "min_pxcor": _json_safe(
+                run_with_stdout_protection(nl.report, "min-pxcor")
+            ),
+            "max_pxcor": _json_safe(
+                run_with_stdout_protection(nl.report, "max-pxcor")
+            ),
+            "min_pycor": _json_safe(
+                run_with_stdout_protection(nl.report, "min-pycor")
+            ),
+            "max_pycor": _json_safe(
+                run_with_stdout_protection(nl.report, "max-pycor")
+            ),
         }
     except Exception as e:
         raise _wrap_netlogo_error(e)
@@ -243,7 +260,7 @@ async def get_patch_data(attribute: str, ctx: Context) -> str:
     """
     nl = _require_model(ctx)
     try:
-        data = nl.patch_report(attribute)
+        data = run_with_stdout_protection(nl.patch_report, attribute)
     except Exception as e:
         raise _wrap_netlogo_error(e)
 
@@ -269,7 +286,7 @@ async def export_view(ctx: Context) -> Image:
     export_path = str(views_dir / f"view_{timestamp}.png").replace("\\", "/")
 
     try:
-        nl.command(f'export-view "{export_path}"')
+        run_with_stdout_protection(nl.command, f'export-view "{export_path}"')
     except Exception as e:
         raise _wrap_netlogo_error(e)
 
@@ -298,7 +315,10 @@ async def create_model(code: str, ctx: Context) -> str:
     model_path.write_text(code, encoding="utf-8")
 
     try:
-        nl.load_model(str(model_path).replace("\\", "/"))
+        run_with_stdout_protection(
+            nl.load_model,
+            str(model_path).replace("\\", "/"),
+        )
     except Exception as e:
         raise _wrap_netlogo_error(e)
 
@@ -426,7 +446,7 @@ async def export_world(ctx: Context) -> str:
     export_path = str(worlds_dir / f"world_{timestamp}.csv").replace("\\", "/")
 
     try:
-        nl.command(f'export-world "{export_path}"')
+        run_with_stdout_protection(nl.command, f'export-world "{export_path}"')
     except Exception as e:
         raise _wrap_netlogo_error(e)
 

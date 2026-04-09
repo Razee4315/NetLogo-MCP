@@ -12,45 +12,92 @@ _real_stdout = sys.stdout
 sys.stdout = sys.stderr
 
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
+from threading import Lock
+from typing import Any, Callable, TypeVar
 
 from fastmcp import FastMCP
 
 from .config import get_jvm_path, get_netlogo_home
 
 logger = logging.getLogger("netlogo_mcp")
+_workspace_lock = Lock()
+T = TypeVar("T")
+
+
+@contextmanager
+def protect_stdout() -> Iterator[None]:
+    """Temporarily redirect stdout to stderr during JVM/NetLogo operations."""
+    previous_stdout = sys.stdout
+    sys.stdout = sys.stderr
+    try:
+        yield
+    finally:
+        sys.stdout = previous_stdout
+
+
+def run_with_stdout_protection(func: Callable[..., T], /, *args: Any, **kwargs: Any) -> T:
+    """Run a callable while shielding MCP stdout from JVM output."""
+    with protect_stdout():
+        return func(*args, **kwargs)
+
+
+def get_or_create_netlogo(lifespan_context: dict[str, Any]) -> Any:
+    """Create the shared NetLogo workspace on first use, then reuse it."""
+    existing = lifespan_context.get("netlogo")
+    if existing is not None:
+        return existing
+
+    with _workspace_lock:
+        existing = lifespan_context.get("netlogo")
+        if existing is not None:
+            return existing
+
+        # Deferred import — JVM must not start at module import time
+        with protect_stdout():
+            import pynetlogo
+
+            nl_home = get_netlogo_home()
+            jvm_path = get_jvm_path()
+
+            logger.info(
+                "Starting NetLogo workspace (NETLOGO_HOME=%s, jvm=%s)",
+                nl_home,
+                jvm_path,
+            )
+            nl = pynetlogo.NetLogoLink(
+                netlogo_home=nl_home,
+                gui=False,
+                jvm_path=jvm_path,
+            )
+
+        lifespan_context["netlogo"] = nl
+        logger.info("NetLogo workspace ready")
+        return nl
+
+
+def shutdown_netlogo(lifespan_context: dict[str, Any]) -> None:
+    """Close the shared NetLogo workspace if it was created."""
+    nl = lifespan_context.pop("netlogo", None)
+    if nl is None:
+        return
+
+    logger.info("Shutting down NetLogo workspace")
+    try:
+        run_with_stdout_protection(nl.kill_workspace)
+    except Exception:
+        logger.exception("Failed to shut down NetLogo workspace cleanly")
 
 
 @asynccontextmanager
 async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
-    """Start the JVM + NetLogo workspace once, share it for all tool calls."""
-    # Deferred import — JVM must not start at module import time
-    import pynetlogo
-
-    nl_home = get_netlogo_home()
-    jvm_path = get_jvm_path()
-
-    logger.info(
-        "Starting NetLogo workspace (NETLOGO_HOME=%s, jvm=%s)",
-        nl_home,
-        jvm_path,
-    )
-    nl = pynetlogo.NetLogoLink(
-        netlogo_home=nl_home,
-        gui=False,
-        jvm_path=jvm_path,
-    )
-    logger.info("NetLogo workspace ready")
-
+    """Keep shared lifecycle state; start NetLogo lazily on first tool use."""
+    state: dict[str, Any] = {}
     try:
-        yield {"netlogo": nl}
+        yield state
     finally:
-        logger.info("Shutting down NetLogo workspace")
-        try:
-            nl.kill_workspace()
-        except Exception:
-            pass
+        shutdown_netlogo(state)
 
 
 mcp = FastMCP(
