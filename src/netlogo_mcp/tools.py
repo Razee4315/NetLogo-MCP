@@ -334,6 +334,9 @@ def _wrap_nlogox(procedures: str) -> str:
   <code>{escaped}</code>
   <widgets>
     <view x="210" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="430" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="430" tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16" minPxcor="-16"></view>
+    <button x="10" y="10" width="190" height="45" kind="Observer" forever="false" disableUntilTicks="false" display="Setup">setup</button>
+    <button x="10" y="65" width="190" height="45" kind="Observer" forever="true" disableUntilTicks="true" display="Go">go</button>
+    <monitor x="10" y="130" width="190" height="45" fontSize="11" precision="0" display="Time Steps">ticks</monitor>
   </widgets>
   <info><![CDATA[## WHAT IS IT?
 

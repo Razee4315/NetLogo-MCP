@@ -162,11 +162,18 @@ async def test_get_patch_data(mock_context, mock_nl):
 
 
 @pytest.mark.asyncio
-async def test_create_model_raw_code(mock_context, mock_nl):
+async def test_create_model_raw_code(mock_context, mock_nl, tmp_path, monkeypatch):
+    monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: tmp_path)
     code = "globals [x]\nto setup\n  clear-all\n  reset-ticks\nend\nto go\n  tick\nend"
     result = await create_model(code, mock_context)
     assert "created" in result.lower()
     assert mock_nl._model_loaded
+    created_files = list(tmp_path.glob("_created_*.nlogox"))
+    assert len(created_files) == 1
+    content = created_files[0].read_text(encoding="utf-8")
+    assert 'display="Setup">setup</button>' in content
+    assert 'display="Go">go</button>' in content
+    assert 'display="Time Steps">ticks</monitor>' in content
 
 
 @pytest.mark.asyncio
@@ -229,6 +236,9 @@ async def test_save_model_success(mock_context, tmp_path, monkeypatch):
     content = saved_file.read_text(encoding="utf-8")
     assert "clear-all" in content
     assert "<?xml" in content  # envelope was added
+    assert 'display="Setup">setup</button>' in content
+    assert 'display="Go">go</button>' in content
+    assert 'display="Time Steps">ticks</monitor>' in content
 
 
 @pytest.mark.asyncio
