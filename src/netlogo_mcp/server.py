@@ -84,9 +84,7 @@ def get_or_create_netlogo(lifespan_context: dict[str, Any]) -> Any:
             )
 
         lifespan_context["netlogo"] = nl
-        logger.info(
-            "NetLogo workspace ready (%s) — all tools available", mode_str
-        )
+        logger.info("NetLogo workspace ready (%s) — all tools available", mode_str)
         return nl
 
 

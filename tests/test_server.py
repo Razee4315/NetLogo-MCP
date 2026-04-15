@@ -45,6 +45,7 @@ async def test_lifespan_starts_netlogo_and_yields_workspace(monkeypatch):
 @pytest.mark.asyncio
 async def test_lifespan_gui_mode(monkeypatch):
     """GUI mode: gui=True, thd=False (JPype handles Swing EDT)."""
+
     def factory(**kwargs):
         return FakeNetLogoLink(**kwargs)
 

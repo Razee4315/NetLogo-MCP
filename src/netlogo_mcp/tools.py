@@ -37,13 +37,16 @@ def _require_model(ctx: Context):
         nl.report("max-pxcor")
     except Exception as exc:
         msg = str(exc)
-        if "model" in msg.lower() or "observer" in msg.lower() or "Nothing has been loaded" in msg:
+        if (
+            "model" in msg.lower()
+            or "observer" in msg.lower()
+            or "Nothing has been loaded" in msg
+        ):
             raise ToolError(
                 "No model is loaded. Use open_model or create_model first."
             ) from exc
         raise ToolError(
-            f"Model check failed: {msg}\n\n"
-            "Try using open_model or create_model first."
+            f"Model check failed: {msg}\n\nTry using open_model or create_model first."
         ) from exc
     return nl
 
