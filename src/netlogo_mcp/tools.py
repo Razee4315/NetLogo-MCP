@@ -22,7 +22,7 @@ from .server import mcp
 def _nl(ctx: Context):  # type: ignore[type-arg]
     """Get the shared NetLogoLink instance from the lifespan context."""
     try:
-        return ctx.request_context.lifespan_context["netlogo"]
+        return ctx.request_context.lifespan_context["netlogo"]  # type: ignore[union-attr]
     except (AttributeError, KeyError) as exc:
         raise ToolError("NetLogo workspace is not initialized.") from exc
 
