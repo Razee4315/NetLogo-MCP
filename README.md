@@ -7,7 +7,7 @@
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
   <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
   <a href="https://mypy-lang.org/"><img src="https://img.shields.io/badge/types-mypy-blue.svg" alt="mypy"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-source--available-green.svg" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License"></a>
 </p>
 
 The first MCP (Model Context Protocol) server for NetLogo — enabling AI assistants to create, run, and analyze agent-based models through natural conversation.
@@ -492,8 +492,4 @@ LinkedIn: [@saqlainrazee](https://www.linkedin.com/in/saqlainrazee/)
 
 ## License
 
-This project is **source available** with restricted commercial use:
-- **Personal use** — Free to use, copy, and modify
-- **Commercial use** — Requires written permission from the author
-
-See the [LICENSE](LICENSE) file for full details.
+This project is licensed under the [MIT License](LICENSE) — free to use, modify, and distribute for any purpose.
