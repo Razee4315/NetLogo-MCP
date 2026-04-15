@@ -68,7 +68,11 @@ def mock_nl():
 
 @pytest.fixture
 def mock_context(mock_nl):
-    """Return a mock MCP Context with netlogo in lifespan context."""
+    """Return a mock MCP Context with netlogo in lifespan context.
+
+    No _ready event needed — wait_for_netlogo returns immediately
+    when 'netlogo' key is already present.
+    """
     ctx = MagicMock()
     ctx.request_context.lifespan_context = {"netlogo": mock_nl}
     return ctx

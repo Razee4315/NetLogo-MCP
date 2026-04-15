@@ -26,23 +26,28 @@ def programming_guide() -> str:
 
 @mcp.resource("netlogo://models/{name}")
 def model_source(name: str) -> str:
-    """Return the source code of a .nlogo model from the models directory.
+    """Return the source code of a .nlogo/.nlogox model from the models directory.
 
     Args:
-        name: Model filename (with or without .nlogo extension).
+        name: Model filename (with or without extension).
+              Accepts .nlogo and .nlogox files.
     """
     if ".." in name or "/" in name or "\\" in name:
         raise ToolError("Invalid model name (path traversal not allowed).")
 
-    if not name.endswith(".nlogo"):
-        name = f"{name}.nlogo"
+    models_dir = get_models_dir().resolve()
 
-    model_path = get_models_dir() / name
-    model_path = model_path.resolve()
+    # If the name already has a recognized extension, use it directly
+    if name.endswith((".nlogo", ".nlogox")):
+        model_path = (models_dir / name).resolve()
+    else:
+        # Try .nlogo first, then .nlogox
+        model_path = (models_dir / f"{name}.nlogo").resolve()
+        if not model_path.exists():
+            model_path = (models_dir / f"{name}.nlogox").resolve()
 
     # Ensure resolved path is still inside models dir
-    models_dir = get_models_dir().resolve()
-    if not str(model_path).startswith(str(models_dir)):
+    if not model_path.is_relative_to(models_dir):
         raise ToolError("Invalid model name (path traversal not allowed).")
 
     if not model_path.exists():

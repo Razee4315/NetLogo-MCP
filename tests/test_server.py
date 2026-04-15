@@ -1,4 +1,4 @@
-"""Tests for lazy NetLogo workspace startup and shutdown."""
+"""Tests for NetLogo workspace eager startup and shutdown."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from netlogo_mcp.server import get_or_create_netlogo, lifespan
+from netlogo_mcp.server import lifespan
 
 
 class FakeNetLogoLink:
@@ -22,7 +22,8 @@ class FakeNetLogoLink:
 
 
 @pytest.mark.asyncio
-async def test_lifespan_does_not_start_workspace_eagerly(monkeypatch):
+async def test_lifespan_starts_netlogo_and_yields_workspace(monkeypatch):
+    """Lifespan should start NetLogo eagerly and yield it in state."""
     starts = []
 
     def factory(**kwargs):
@@ -32,35 +33,33 @@ async def test_lifespan_does_not_start_workspace_eagerly(monkeypatch):
     monkeypatch.setitem(sys.modules, "pynetlogo", SimpleNamespace(NetLogoLink=factory))
     monkeypatch.setattr("netlogo_mcp.server.get_netlogo_home", lambda: "C:/NetLogo")
     monkeypatch.setattr("netlogo_mcp.server.get_jvm_path", lambda: "C:/Java/jvm.dll")
+    monkeypatch.setattr("netlogo_mcp.server.get_gui_mode", lambda: False)
 
     async with lifespan(None) as state:
-        assert state == {}
-        assert starts == []
-
-
-def test_get_or_create_netlogo_starts_once_and_reuses_workspace(monkeypatch):
-    starts = []
-
-    def factory(**kwargs):
-        starts.append(kwargs)
-        return FakeNetLogoLink(**kwargs)
-
-    monkeypatch.setitem(sys.modules, "pynetlogo", SimpleNamespace(NetLogoLink=factory))
-    monkeypatch.setattr("netlogo_mcp.server.get_netlogo_home", lambda: "C:/NetLogo")
-    monkeypatch.setattr("netlogo_mcp.server.get_jvm_path", lambda: "C:/Java/jvm.dll")
-
-    state = {}
-    first = get_or_create_netlogo(state)
-    second = get_or_create_netlogo(state)
-
-    assert first is second
-    assert state["netlogo"] is first
-    assert len(starts) == 1
-    assert first.kwargs["gui"] is False
+        assert "netlogo" in state
+        assert len(starts) == 1
+        assert state["netlogo"].kwargs["gui"] is False
+        assert state["netlogo"].kwargs["thd"] is False
 
 
 @pytest.mark.asyncio
-async def test_lifespan_shuts_down_workspace_if_started(monkeypatch):
+async def test_lifespan_gui_mode(monkeypatch):
+    """GUI mode: gui=True, thd=False (JPype handles Swing EDT)."""
+    def factory(**kwargs):
+        return FakeNetLogoLink(**kwargs)
+
+    monkeypatch.setitem(sys.modules, "pynetlogo", SimpleNamespace(NetLogoLink=factory))
+    monkeypatch.setattr("netlogo_mcp.server.get_netlogo_home", lambda: "C:/NetLogo")
+    monkeypatch.setattr("netlogo_mcp.server.get_jvm_path", lambda: "C:/Java/jvm.dll")
+    monkeypatch.setattr("netlogo_mcp.server.get_gui_mode", lambda: True)
+
+    async with lifespan(None) as state:
+        assert state["netlogo"].kwargs["gui"] is True
+        assert state["netlogo"].kwargs["thd"] is False
+
+
+@pytest.mark.asyncio
+async def test_lifespan_shuts_down_workspace(monkeypatch):
     fake_nl = FakeNetLogoLink()
 
     monkeypatch.setitem(
@@ -72,6 +71,6 @@ async def test_lifespan_shuts_down_workspace_if_started(monkeypatch):
     monkeypatch.setattr("netlogo_mcp.server.get_jvm_path", lambda: "C:/Java/jvm.dll")
 
     async with lifespan(None) as state:
-        assert get_or_create_netlogo(state) is fake_nl
+        assert state["netlogo"] is fake_nl
 
     assert fake_nl.kill_calls == 1

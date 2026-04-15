@@ -57,3 +57,31 @@ def test_model_source_with_extension(tmp_path, monkeypatch):
     (tmp_path / "test.nlogo").write_text("to setup end")
     result = model_source("test.nlogo")
     assert result == "to setup end"
+
+
+# ── .nlogox support ─────────────────────────────────────────────────────────
+
+
+def test_model_source_nlogox_by_name(tmp_path, monkeypatch):
+    """Bare name should find .nlogox when .nlogo doesn't exist."""
+    monkeypatch.setattr("netlogo_mcp.resources.get_models_dir", lambda: tmp_path)
+    (tmp_path / "mymodel.nlogox").write_text("<model>xml</model>")
+    result = model_source("mymodel")
+    assert result == "<model>xml</model>"
+
+
+def test_model_source_nlogox_with_extension(tmp_path, monkeypatch):
+    """Explicit .nlogox extension should work."""
+    monkeypatch.setattr("netlogo_mcp.resources.get_models_dir", lambda: tmp_path)
+    (tmp_path / "mymodel.nlogox").write_text("<model>xml</model>")
+    result = model_source("mymodel.nlogox")
+    assert result == "<model>xml</model>"
+
+
+def test_model_source_prefers_nlogo_over_nlogox(tmp_path, monkeypatch):
+    """When both .nlogo and .nlogox exist, bare name returns .nlogo."""
+    monkeypatch.setattr("netlogo_mcp.resources.get_models_dir", lambda: tmp_path)
+    (tmp_path / "dual.nlogo").write_text("nlogo content")
+    (tmp_path / "dual.nlogox").write_text("nlogox content")
+    result = model_source("dual")
+    assert result == "nlogo content"

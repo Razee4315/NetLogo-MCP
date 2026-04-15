@@ -12,7 +12,7 @@
 
 The first MCP (Model Context Protocol) server for NetLogo — enabling AI assistants to create, run, and analyze agent-based models through natural conversation.
 
-**Works with:** Claude Code, Claude Desktop, Cursor, Windsurf, VS Code (Copilot), Cline, Continue, Roo Code, Zed, OpenCode — any tool that supports MCP.
+**Works with:** Claude Code, Claude Desktop, Cursor, Windsurf, VS Code (Copilot), Cline, Continue, Roo Code, Zed, OpenCode, Codex — any tool that supports MCP.
 
 ## Why NetLogo MCP?
 
@@ -30,7 +30,7 @@ This bridges the gap between AI-powered assistance and agent-based modeling, mak
 You (in any MCP client) → AI Assistant → MCP Protocol → NetLogo MCP Server → NetLogo (headless JVM)
 ```
 
-The server runs NetLogo in headless mode (no GUI) as a background Java process. Your AI sends commands through the MCP protocol, NetLogo executes them, and results come back — including simulation data, agent counts, and exported view snapshots you can see right in the chat.
+The server runs NetLogo with a live GUI window by default — you can watch your simulations run in real-time. Your AI sends commands through the MCP protocol, NetLogo executes them, and results come back — including simulation data, agent counts, and view snapshots. Headless mode is available for CI or server environments.
 
 ## Features
 
@@ -100,8 +100,17 @@ pip install -e .
 Copy `.env.example` to `.env` and set your paths:
 
 ```env
+# Windows
 NETLOGO_HOME=C:/Program Files/NetLogo 7.0.3
 JAVA_HOME=C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot
+
+# macOS
+# NETLOGO_HOME=/Applications/NetLogo 7.0.3
+# JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home
+
+# Linux
+# NETLOGO_HOME=/opt/netlogo-7.0.3
+# JAVA_HOME=/usr/lib/jvm/java-21-openjdk
 ```
 
 ### Environment Variables
@@ -111,7 +120,7 @@ JAVA_HOME=C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot
 | `NETLOGO_HOME` | Yes | Path to your NetLogo installation directory |
 | `JAVA_HOME` | No | Path to your JDK directory (auto-detected if not set) |
 | `NETLOGO_MODELS_DIR` | No | Directory for model files (defaults to `./models`) |
-| `NETLOGO_GUI` | No | `"true"` for live GUI window, `"false"` for headless (default) |
+| `NETLOGO_GUI` | No | `"true"` (default) for live GUI window, `"false"` for headless |
 | `NETLOGO_EXPORTS_DIR` | No | Directory for exported views/worlds (defaults to `./exports`) |
 
 ## Client Setup
@@ -358,12 +367,38 @@ Add to `opencode.json` (project root) or `~/.config/opencode/opencode.json`:
 
 </details>
 
-### Headless vs GUI Mode
+<details>
+<summary><strong>Codex (OpenAI)</strong></summary>
+
+Add to your Codex MCP configuration (typically `codex.json` or via the Codex CLI config):
+
+```json
+{
+  "mcpServers": {
+    "netlogo": {
+      "command": "netlogo-mcp",
+      "args": [],
+      "env": {
+        "NETLOGO_HOME": "C:/Program Files/NetLogo 7.0.3",
+        "JAVA_HOME": "C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot"
+      }
+    }
+  }
+}
+```
+
+> **Note:** Codex runs MCP servers as stdio subprocesses. Make sure `netlogo-mcp` is on your PATH (installed via `pip install -e .`).
+
+</details>
+
+### GUI vs Headless Mode
 
 | Mode | `NETLOGO_GUI` | What Happens |
 |------|---------------|-------------|
-| **Headless** (default) | `"false"` | No window. Fast. See snapshots via `export_view` in chat. |
-| **Live GUI** | `"true"` | Opens a NetLogo window. Watch simulations run in real-time. |
+| **Live GUI** (default) | `"true"` or omitted | Opens a NetLogo window. Watch simulations run in real-time. |
+| **Headless** | `"false"` | No window. Faster startup. See snapshots via `export_view` in chat. |
+
+By default, a NetLogo window opens so you can **see your simulations running**. To switch to headless mode, add `"NETLOGO_GUI": "false"` to your env config.
 
 > **Note:** GUI mode runs NetLogo on a separate thread so the MCP server stays responsive. The mode is set at startup — to switch, change the env var and restart your client.
 
@@ -395,7 +430,7 @@ Once connected, try these prompts in any MCP client:
 NetLogo_MCP/
 ├── pyproject.toml              # Package config, linting & type check settings
 ├── smithery.yaml               # Smithery registry configuration
-├── .mcp.json                   # Claude Code MCP configuration
+├── .mcp.json                   # MCP client configuration (works with any client)
 ├── .pre-commit-config.yaml     # Pre-commit hooks (ruff, mypy)
 ├── .github/workflows/ci.yml    # CI pipeline (lint, type check, test)
 ├── CHANGELOG.md                # Version history

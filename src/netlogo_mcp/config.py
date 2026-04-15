@@ -60,9 +60,13 @@ def get_models_dir() -> Path:
 
 
 def get_gui_mode() -> bool:
-    """Return True if the server should launch with a live NetLogo GUI window."""
-    val = os.environ.get("NETLOGO_GUI", "false").lower()
-    return val in ("true", "1", "yes")
+    """Return True if the server should launch with a live NetLogo GUI window.
+
+    Defaults to GUI mode (True) so new users see simulations running.
+    Power users can set NETLOGO_GUI=false for headless operation.
+    """
+    val = os.environ.get("NETLOGO_GUI", "true").lower()
+    return val not in ("false", "0", "no")
 
 
 def get_exports_dir() -> Path:

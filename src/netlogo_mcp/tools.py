@@ -14,7 +14,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.utilities.types import Image
 
 from .config import get_exports_dir, get_models_dir
-from .server import get_or_create_netlogo, mcp, run_with_stdout_protection
+from .server import mcp
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -22,7 +22,7 @@ from .server import get_or_create_netlogo, mcp, run_with_stdout_protection
 def _nl(ctx: Context):  # type: ignore[type-arg]
     """Get the shared NetLogoLink instance from the lifespan context."""
     try:
-        return get_or_create_netlogo(ctx.request_context.lifespan_context)
+        return ctx.request_context.lifespan_context["netlogo"]
     except (AttributeError, KeyError) as exc:
         raise ToolError("NetLogo workspace is not initialized.") from exc
 
@@ -33,10 +33,17 @@ def _require_model(ctx: Context):
     try:
         # Use max-pxcor as a model-loaded check — it always works,
         # even before reset-ticks (unlike "ticks" which errors pre-setup).
-        run_with_stdout_protection(nl.report, "max-pxcor")
+        # Call directly (no wrapper) to avoid stdout/thread interference.
+        nl.report("max-pxcor")
     except Exception as exc:
+        msg = str(exc)
+        if "model" in msg.lower() or "observer" in msg.lower() or "Nothing has been loaded" in msg:
+            raise ToolError(
+                "No model is loaded. Use open_model or create_model first."
+            ) from exc
         raise ToolError(
-            "No model is loaded. Use open_model or create_model first."
+            f"Model check failed: {msg}\n\n"
+            "Try using open_model or create_model first."
         ) from exc
     return nl
 
@@ -98,7 +105,7 @@ async def open_model(path: str, ctx: Context) -> str:
         raise ToolError(f"Not a .nlogo/.nlogox file: {p}")
 
     try:
-        run_with_stdout_protection(nl.load_model, str(p).replace("\\", "/"))
+        nl.load_model(str(p).replace("\\", "/"))
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -114,7 +121,7 @@ async def command(netlogo_command: str, ctx: Context) -> str:
     """
     nl = _require_model(ctx)
     try:
-        run_with_stdout_protection(nl.command, netlogo_command)
+        nl.command(netlogo_command)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
     return f"OK: {netlogo_command}"
@@ -130,7 +137,7 @@ async def report(reporter: str, ctx: Context) -> str:
     """
     nl = _require_model(ctx)
     try:
-        result = run_with_stdout_protection(nl.report, reporter)
+        result = nl.report(reporter)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
     return json.dumps(_json_safe(result))
@@ -161,12 +168,7 @@ async def run_simulation(
     nl = _require_model(ctx)
 
     try:
-        results = run_with_stdout_protection(
-            nl.repeat_report,
-            reporters,
-            ticks,
-            go=go_command,
-        )
+        results = nl.repeat_report(reporters, ticks, go=go_command)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -200,12 +202,14 @@ async def set_parameter(name: str, value: Any, ctx: Context) -> str:
     if isinstance(value, bool):
         nl_val = "true" if value else "false"
     elif isinstance(value, str):
-        nl_val = f'"{value}"'
+        # Escape backslashes and double quotes for NetLogo string literals
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        nl_val = f'"{escaped}"'
     else:
         nl_val = str(value)
 
     try:
-        run_with_stdout_protection(nl.command, f"set {name} {nl_val}")
+        nl.command(f"set {name} {nl_val}")
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
     return f"OK: {name} = {nl_val}"
@@ -219,29 +223,21 @@ async def get_world_state(ctx: Context) -> str:
     """
     nl = _require_model(ctx)
     try:
+        # ticks returns -1 before reset-ticks is called; guard against errors
+        try:
+            ticks_val = _json_safe(nl.report("ticks"))
+        except Exception:
+            ticks_val = -1  # model loaded but setup not yet run
+
         state = {
-            "ticks": _json_safe(run_with_stdout_protection(nl.report, "ticks")),
-            "turtle_count": _json_safe(
-                run_with_stdout_protection(nl.report, "count turtles")
-            ),
-            "patch_count": _json_safe(
-                run_with_stdout_protection(nl.report, "count patches")
-            ),
-            "link_count": _json_safe(
-                run_with_stdout_protection(nl.report, "count links")
-            ),
-            "min_pxcor": _json_safe(
-                run_with_stdout_protection(nl.report, "min-pxcor")
-            ),
-            "max_pxcor": _json_safe(
-                run_with_stdout_protection(nl.report, "max-pxcor")
-            ),
-            "min_pycor": _json_safe(
-                run_with_stdout_protection(nl.report, "min-pycor")
-            ),
-            "max_pycor": _json_safe(
-                run_with_stdout_protection(nl.report, "max-pycor")
-            ),
+            "ticks": ticks_val,
+            "turtle_count": _json_safe(nl.report("count turtles")),
+            "patch_count": _json_safe(nl.report("count patches")),
+            "link_count": _json_safe(nl.report("count links")),
+            "min_pxcor": _json_safe(nl.report("min-pxcor")),
+            "max_pxcor": _json_safe(nl.report("max-pxcor")),
+            "min_pycor": _json_safe(nl.report("min-pycor")),
+            "max_pycor": _json_safe(nl.report("max-pycor")),
         }
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
@@ -260,7 +256,7 @@ async def get_patch_data(attribute: str, ctx: Context) -> str:
     """
     nl = _require_model(ctx)
     try:
-        data = run_with_stdout_protection(nl.patch_report, attribute)
+        data = nl.patch_report(attribute)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -283,7 +279,7 @@ async def export_view(ctx: Context) -> Image:
     export_path = str(views_dir / f"view_{timestamp}.png").replace("\\", "/")
 
     try:
-        run_with_stdout_protection(nl.command, f'export-view "{export_path}"')
+        nl.command(f'export-view "{export_path}"')
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -312,10 +308,7 @@ async def create_model(code: str, ctx: Context) -> str:
     model_path.write_text(code, encoding="utf-8")
 
     try:
-        run_with_stdout_protection(
-            nl.load_model,
-            str(model_path).replace("\\", "/"),
-        )
+        nl.load_model(str(model_path).replace("\\", "/"))
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -447,7 +440,7 @@ async def export_world(ctx: Context) -> str:
     export_path = str(worlds_dir / f"world_{timestamp}.csv").replace("\\", "/")
 
     try:
-        run_with_stdout_protection(nl.command, f'export-world "{export_path}"')
+        nl.command(f'export-world "{export_path}"')
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 

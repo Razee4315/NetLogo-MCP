@@ -133,6 +133,22 @@ async def test_set_parameter_string(mock_context, mock_nl):
     assert '"hello"' in result
 
 
+@pytest.mark.asyncio
+async def test_set_parameter_string_with_quotes(mock_context, mock_nl):
+    """Embedded quotes should be escaped for NetLogo."""
+    mock_nl._model_loaded = True
+    result = await set_parameter("label", 'say "hi"', mock_context)
+    assert r"\"hi\"" in result
+
+
+@pytest.mark.asyncio
+async def test_set_parameter_string_with_backslash(mock_context, mock_nl):
+    """Backslashes should be escaped for NetLogo."""
+    mock_nl._model_loaded = True
+    result = await set_parameter("path", r"C:\temp", mock_context)
+    assert r"C:\\temp" in result
+
+
 # ── get_world_state ──────────────────────────────────────────────────────────
 
 
@@ -144,6 +160,24 @@ async def test_get_world_state(mock_context, mock_nl):
     assert state["turtle_count"] == 100
     assert state["ticks"] == 0
     assert state["min_pxcor"] == -16
+
+
+@pytest.mark.asyncio
+async def test_get_world_state_pre_setup(mock_context, mock_nl):
+    """get_world_state should return ticks=-1 when ticks errors (pre-setup)."""
+    mock_nl._model_loaded = True
+    original_report = mock_nl.report
+
+    def report_with_ticks_error(reporter):
+        if reporter == "ticks":
+            raise RuntimeError("Tick counter has not been started yet.")
+        return original_report(reporter)
+
+    mock_nl.report = report_with_ticks_error
+    result = await get_world_state(mock_context)
+    state = json.loads(result)
+    assert state["ticks"] == -1
+    assert state["turtle_count"] == 100  # other fields still work
 
 
 # ── get_patch_data ───────────────────────────────────────────────────────────
@@ -177,10 +211,16 @@ async def test_create_model_raw_code(mock_context, mock_nl, tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_create_model_full_nlogo(mock_context, mock_nl):
-    code = "to setup end\n@#$#@#$#@\ninterface\n@#$#@#$#@\ninfo"
+async def test_create_model_full_xml(mock_context, mock_nl, tmp_path, monkeypatch):
+    """When full .nlogox XML is provided, it should be preserved as-is."""
+    monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: tmp_path)
+    code = '<?xml version="1.0"?><model version="NetLogo 7.0.3"><code>to setup end</code></model>'
     result = await create_model(code, mock_context)
     assert "created" in result.lower()
+    created_files = list(tmp_path.glob("_created_*.nlogox"))
+    assert len(created_files) == 1
+    content = created_files[0].read_text(encoding="utf-8")
+    assert content == code  # XML should be preserved, not double-wrapped
 
 
 # ── list_models ──────────────────────────────────────────────────────────────
