@@ -84,12 +84,72 @@ The server runs NetLogo with a live GUI window by default — you can watch your
 - **Java JDK 11+** — [Adoptium Temurin](https://adoptium.net/) recommended
 - **NetLogo 7.0+** — [Download](https://ccl.northwestern.edu/netlogo/download.shtml)
 
-## Installation
+## ⚡ Zero-Config Setup (Recommended)
+
+If you're using an AI coding tool (Claude Code, Cursor, Windsurf, Cline, etc.), just **copy and paste the prompt below** into your chat. The AI will detect your OS, find your NetLogo and Java installations, clone the repo, install dependencies, configure the MCP client, and tell you how to use it.
+
+<details>
+<summary><strong>📋 Click to copy the setup prompt</strong></summary>
+
+```
+Please set up the NetLogo MCP server for me end-to-end. Follow these steps carefully:
+
+1. **Detect my environment**
+   - Identify my OS (Windows / macOS / Linux).
+   - Check Python version (need 3.10+). If missing, tell me to install it first and stop.
+   - Check for Java JDK 11+ (not JRE). Look in common locations (JAVA_HOME env var, standard install dirs). If missing, tell me to install Adoptium Temurin JDK 11+ and stop.
+   - Check for NetLogo 7.0+. Look in common locations:
+     - Windows: `C:/Program Files/NetLogo*`
+     - macOS: `/Applications/NetLogo*`
+     - Linux: `/opt/netlogo*`, `~/netlogo*`
+     If NetLogo isn't installed, tell me to download it from https://ccl.northwestern.edu/netlogo/download.shtml and stop.
+
+2. **Clone and install**
+   - Pick a sensible parent directory (e.g. my home folder or `~/projects`).
+   - Run: `git clone https://github.com/Razee4315/NetLogo-MCP.git`
+   - `cd` into the cloned directory.
+   - Run: `pip install -e .`
+   - Verify the `netlogo-mcp` command is now available on my PATH.
+
+3. **Identify my MCP client**
+   - Figure out which AI tool I'm using (Claude Code, Cursor, Windsurf, Cline, Continue, Roo Code, Zed, OpenCode, VS Code Copilot, Codex, or Claude Desktop).
+   - If you're not sure, ask me.
+
+4. **Configure the MCP client**
+   - Locate (or create) the correct config file for my client. For example:
+     - Claude Code: `.mcp.json` in my current project
+     - Cursor: `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global)
+     - Windsurf: `~/.codeium/windsurf/mcp_config.json`
+     - VS Code: `.vscode/mcp.json`
+     - (see the README for other clients)
+   - Add a `netlogo` server entry with:
+     - `command`: `netlogo-mcp`
+     - `env.NETLOGO_HOME`: the NetLogo path you detected
+     - `env.JAVA_HOME`: the JDK path you detected
+     - `env.NETLOGO_GUI`: `"true"` (default — opens a live NetLogo window)
+   - Use the exact JSON schema for my specific client (e.g. `"type": "stdio"` for Cursor, `"servers"` key for VS Code).
+   - Preserve any existing config entries — merge, don't overwrite.
+
+5. **Tell me what to do next**
+   - Tell me to fully restart my AI tool for the new MCP server to load.
+   - Warn me that the FIRST tool call takes 30–60 seconds while the Java Virtual Machine starts (the NetLogo GUI window will appear when it's ready). Tell me NOT to click stop during this wait.
+   - Give me this exact test prompt to try after restart:
+
+     > "Create a simple predator-prey model with wolves and sheep on a green landscape. Run setup, then run 100 ticks while tracking wolf and sheep counts. Export the view before and after so I can see how the world evolved."
+
+   - Tell me where models and exports are saved (the `models/` and `exports/` folders inside the cloned repo) and that I can browse them with the `list_models` tool.
+
+Do not skip any verification step. If something fails, stop and tell me exactly what failed and how to fix it.
+```
+
+</details>
+
+## Manual Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/Razee4315/NetLogo_MCP.git
-cd NetLogo_MCP
+git clone https://github.com/Razee4315/NetLogo-MCP.git
+cd NetLogo-MCP
 
 # Install the package
 pip install -e .
