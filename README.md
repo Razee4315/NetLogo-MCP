@@ -77,7 +77,7 @@ Plus 3 resources (primitives reference, programming guide, model source) and 3 p
 
 If you're using an AI coding tool, copy the prompt below into your chat. The AI will detect your OS, find your NetLogo and Java installations, clone the repo, install dependencies, configure your MCP client, and tell you how to use it.
 
-<details>
+<details open>
 <summary><strong>Click to copy the setup prompt</strong></summary>
 
 ```
