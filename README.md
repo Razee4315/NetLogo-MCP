@@ -16,34 +16,32 @@ The first MCP (Model Context Protocol) server for NetLogo — enabling AI assist
 
 ## Why NetLogo MCP?
 
-As an AI student in my 6th semester, I was taking an Agent-Based Modeling course that heavily uses NetLogo. When I discovered MCP (Model Context Protocol) and how it lets AI assistants interact with external tools, I immediately searched for a NetLogo MCP server. Nothing existed — not for NetLogo, not for any agent-based modeling platform.
+As an AI student taking an Agent-Based Modeling course, I searched for an MCP server to control NetLogo — nothing existed. So I built one.
 
-So I built one.
+Instead of manually writing NetLogo code, clicking buttons, and tweaking sliders, you tell your AI assistant what you want in plain English:
 
-The idea is simple: instead of manually writing NetLogo code, clicking buttons, and tweaking sliders, you just tell your AI assistant what you want in plain English. "Create a predator-prey model with 100 sheep and 20 wolves." "Run it for 500 ticks and show me the population dynamics." "What happens if we double the wolf reproduction rate?" The AI handles the code, runs the simulation, and shows you the results — all through conversation.
+> "Create a predator-prey model with 100 sheep and 20 wolves. Run it for 500 ticks and show me the population dynamics."
 
-This bridges the gap between AI-powered assistance and agent-based modeling, making NetLogo accessible to anyone who can describe what they want to simulate.
+The AI writes the code, runs the simulation, and shows you the results — all through conversation.
 
 ## How It Works
 
 ```
-You (in any MCP client) → AI Assistant → MCP Protocol → NetLogo MCP Server → NetLogo (headless JVM)
+You (in any MCP client) → AI Assistant → MCP Protocol → NetLogo MCP Server → NetLogo (GUI or headless JVM)
 ```
 
-The server runs NetLogo with a live GUI window by default — you can watch your simulations run in real-time. Your AI sends commands through the MCP protocol, NetLogo executes them, and results come back — including simulation data, agent counts, and view snapshots. Headless mode is available for CI or server environments.
+By default, a real NetLogo window opens so you can watch your simulations run live. Headless mode is available for CI or servers.
 
 ## Features
 
-- **Create Models from Code** — Write NetLogo procedures, the AI wraps them in the proper format and loads them
-- **Run Simulations** — Execute setup, go, or any custom command with full control
-- **Collect Data** — Run N ticks and collect reporter data as markdown tables
-- **Visual Snapshots** — Export the current world view as PNG images, visible inline in chat
-- **Parameter Control** — Set globals, sliders, and switches programmatically
-- **World Inspection** — Get tick counts, agent counts, world dimensions, and patch data grids
-- **Model Library** — Browse and load `.nlogo`/`.nlogox` files from a models directory
-- **Built-in References** — NetLogo primitives and programming guide as MCP resources
-- **Prompt Templates** — Pre-built workflows for model analysis, ABM creation, and parameter sweeps
-- **Live GUI Mode** — Optional: open a real NetLogo window to watch simulations run in real-time
+- Create models from code (AI wraps them in `.nlogox` format)
+- Run simulations, collect tick-by-tick data as markdown tables
+- Export view as PNG — visible inline in chat
+- Set global variables, sliders, switches
+- Get world state, agent counts, world dimensions, patch grids
+- Built-in NetLogo primitives and programming guide as MCP resources
+- Prompt templates for model analysis, ABM creation, parameter sweeps
+- Live GUI mode for teaching and real-time exploration
 
 ## Tools
 
@@ -58,38 +56,29 @@ The server runs NetLogo with a live GUI window by default — you can watch your
 | `get_world_state()` | Get tick count, agent counts, world dimensions |
 | `get_patch_data(attribute)` | Get patch data as a 2D grid (for heatmaps) |
 | `export_view()` | Export current view as PNG image |
-| `save_model(name, code)` | Save model to file — open in NetLogo app for live viewing |
-| `export_world()` | Export full world state to CSV for offline analysis |
+| `save_model(name, code)` | Save model to file |
+| `export_world()` | Export full world state to CSV |
 | `list_models()` | List model files in models directory |
 
-## Resources
-
-| URI | Description |
-|-----|-------------|
-| `netlogo://docs/primitives` | NetLogo primitives quick reference |
-| `netlogo://docs/programming` | NetLogo programming guide |
-| `netlogo://models/{name}` | Read model source code |
-
-## Prompts
-
-| Prompt | Description |
-|--------|-------------|
-| `analyze_model(model_name)` | Step-by-step guide to understand an existing model |
-| `create_abm(description, agents, behaviors)` | Build a new ABM from scratch |
-| `parameter_sweep(parameter, min, max, steps, metric)` | Systematic parameter exploration |
+Plus 3 resources (primitives reference, programming guide, model source) and 3 prompts (`analyze_model`, `create_abm`, `parameter_sweep`).
 
 ## Prerequisites
 
-- **Python 3.10+**
-- **Java JDK 11+** — [Adoptium Temurin](https://adoptium.net/) recommended
-- **NetLogo 7.0+** — [Download](https://ccl.northwestern.edu/netlogo/download.shtml)
+| Requirement | Install via terminal? | How |
+|-------------|----------------------|-----|
+| **Python 3.10+** | Yes | Windows: `winget install Python.Python.3.12` · macOS: `brew install python@3.12` · Linux: `sudo apt install python3.12` |
+| **Java JDK 11+** | Yes | Windows: `winget install EclipseAdoptium.Temurin.21.JDK` · macOS: `brew install --cask temurin` · Linux: `sudo apt install openjdk-21-jdk` |
+| **Git** | Yes | Windows: `winget install Git.Git` · macOS/Linux: usually pre-installed |
+| **NetLogo 7.0+** | **No — manual** | Download from [ccl.northwestern.edu/netlogo](https://ccl.northwestern.edu/netlogo/download.shtml) |
 
-## ⚡ Zero-Config Setup (Recommended)
+> **Only NetLogo requires manual download.** Everything else can be installed via terminal, and the Zero-Config Setup prompt below handles those automatically.
 
-If you're using an AI coding tool (Claude Code, Cursor, Windsurf, Cline, etc.), just **copy and paste the prompt below** into your chat. The AI will detect your OS, find your NetLogo and Java installations, clone the repo, install dependencies, configure the MCP client, and tell you how to use it.
+## Zero-Config Setup (Recommended)
+
+If you're using an AI coding tool, copy the prompt below into your chat. The AI will detect your OS, find your NetLogo and Java installations, clone the repo, install dependencies, configure your MCP client, and tell you how to use it.
 
 <details>
-<summary><strong>📋 Click to copy the setup prompt</strong></summary>
+<summary><strong>Click to copy the setup prompt</strong></summary>
 
 ```
 Please set up the NetLogo MCP server for me end-to-end. Follow these steps carefully:
@@ -116,12 +105,7 @@ Please set up the NetLogo MCP server for me end-to-end. Follow these steps caref
    - If you're not sure, ask me.
 
 4. **Configure the MCP client**
-   - Locate (or create) the correct config file for my client. For example:
-     - Claude Code: `.mcp.json` in my current project
-     - Cursor: `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global)
-     - Windsurf: `~/.codeium/windsurf/mcp_config.json`
-     - VS Code: `.vscode/mcp.json`
-     - (see the README for other clients)
+   - Locate (or create) the correct config file for my client (see docs/CLIENTS.md for exact paths and schemas).
    - Add a `netlogo` server entry with:
      - `command`: `netlogo-mcp`
      - `env.NETLOGO_HOME`: the NetLogo path you detected
@@ -147,17 +131,14 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
 ## Manual Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/Razee4315/NetLogo-MCP.git
 cd NetLogo-MCP
-
-# Install the package
 pip install -e .
 ```
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set your paths:
+Create a `.env` file in the project root (or set env vars in your MCP client config):
 
 ```env
 # Windows
@@ -185,39 +166,12 @@ JAVA_HOME=C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot
 
 ## Client Setup
 
-This server uses the **MCP stdio transport**, which is supported by all major AI coding tools. Pick your tool below.
+The 3 most common clients are below. **For Windsurf, Cline, Continue, Roo Code, Zed, OpenCode, Codex, and Claude Desktop — see [docs/CLIENTS.md](docs/CLIENTS.md).**
 
 <details>
 <summary><strong>Claude Code</strong></summary>
 
 Add to your project's `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "netlogo": {
-      "command": "netlogo-mcp",
-      "args": [],
-      "env": {
-        "NETLOGO_HOME": "C:/Program Files/NetLogo 7.0.3",
-        "JAVA_HOME": "C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot",
-        "NETLOGO_MODELS_DIR": "C:/path/to/NetLogo_MCP/models"
-      }
-    }
-  }
-}
-```
-
-Restart Claude Code and verify with `/mcp`.
-
-</details>
-
-<details>
-<summary><strong>Claude Desktop</strong></summary>
-
-Add to `claude_desktop_config.json`:
-- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
@@ -233,6 +187,8 @@ Add to `claude_desktop_config.json`:
   }
 }
 ```
+
+Restart Claude Code and verify with `/mcp`.
 
 </details>
 
@@ -280,174 +236,7 @@ Add to `.vscode/mcp.json`:
 }
 ```
 
-> **Note:** VS Code uses `"servers"` instead of `"mcpServers"`.
-
-</details>
-
-<details>
-<summary><strong>Windsurf</strong></summary>
-
-Add to `~/.codeium/windsurf/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "netlogo": {
-      "command": "netlogo-mcp",
-      "args": [],
-      "env": {
-        "NETLOGO_HOME": "C:/Program Files/NetLogo 7.0.3",
-        "JAVA_HOME": "C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot"
-      }
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Cline</strong></summary>
-
-Add via Cline settings UI, or edit `cline_mcp_settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "netlogo": {
-      "command": "netlogo-mcp",
-      "args": [],
-      "env": {
-        "NETLOGO_HOME": "C:/Program Files/NetLogo 7.0.3",
-        "JAVA_HOME": "C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot"
-      },
-      "disabled": false
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Roo Code</strong></summary>
-
-Add to `.roo/mcp.json` (project) or via VS Code settings:
-
-```json
-{
-  "mcpServers": {
-    "netlogo": {
-      "command": "netlogo-mcp",
-      "args": [],
-      "env": {
-        "NETLOGO_HOME": "C:/Program Files/NetLogo 7.0.3",
-        "JAVA_HOME": "C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot"
-      },
-      "disabled": false
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Continue</strong></summary>
-
-Create `.continue/mcpServers/netlogo.json`:
-
-```json
-{
-  "mcpServers": {
-    "netlogo": {
-      "command": "netlogo-mcp",
-      "args": [],
-      "env": {
-        "NETLOGO_HOME": "C:/Program Files/NetLogo 7.0.3",
-        "JAVA_HOME": "C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot"
-      }
-    }
-  }
-}
-```
-
-> **Note:** MCP tools only work in Continue's Agent mode.
-
-</details>
-
-<details>
-<summary><strong>Zed</strong></summary>
-
-Add to Zed `settings.json`:
-
-```json
-{
-  "context_servers": {
-    "netlogo": {
-      "command": {
-        "path": "netlogo-mcp",
-        "args": [],
-        "env": {
-          "NETLOGO_HOME": "C:/Program Files/NetLogo 7.0.3",
-          "JAVA_HOME": "C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot"
-        }
-      }
-    }
-  }
-}
-```
-
-> **Note:** Zed uses `"context_servers"` with a nested `"command"` object.
-
-</details>
-
-<details>
-<summary><strong>OpenCode</strong></summary>
-
-Add to `opencode.json` (project root) or `~/.config/opencode/opencode.json`:
-
-```json
-{
-  "mcp": {
-    "netlogo": {
-      "type": "local",
-      "command": "netlogo-mcp",
-      "args": [],
-      "env": {
-        "NETLOGO_HOME": "C:/Program Files/NetLogo 7.0.3",
-        "JAVA_HOME": "C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot"
-      }
-    }
-  }
-}
-```
-
-> **Note:** OpenCode uses `"mcp"` as the root key and `"type": "local"` for stdio.
-
-</details>
-
-<details>
-<summary><strong>Codex (OpenAI)</strong></summary>
-
-Add to your Codex MCP configuration (typically `codex.json` or via the Codex CLI config):
-
-```json
-{
-  "mcpServers": {
-    "netlogo": {
-      "command": "netlogo-mcp",
-      "args": [],
-      "env": {
-        "NETLOGO_HOME": "C:/Program Files/NetLogo 7.0.3",
-        "JAVA_HOME": "C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot"
-      }
-    }
-  }
-}
-```
-
-> **Note:** Codex runs MCP servers as stdio subprocesses. Make sure `netlogo-mcp` is on your PATH (installed via `pip install -e .`).
+> VS Code uses `"servers"` instead of `"mcpServers"`.
 
 </details>
 
@@ -458,9 +247,7 @@ Add to your Codex MCP configuration (typically `codex.json` or via the Codex CLI
 | **Live GUI** (default) | `"true"` or omitted | Opens a NetLogo window. Watch simulations run in real-time. |
 | **Headless** | `"false"` | No window. Faster startup. See snapshots via `export_view` in chat. |
 
-By default, a NetLogo window opens so you can **see your simulations running**. To switch to headless mode, add `"NETLOGO_GUI": "false"` to your env config.
-
-> **Note:** GUI mode runs NetLogo on a separate thread so the MCP server stays responsive. The mode is set at startup — to switch, change the env var and restart your client.
+The mode is set at startup — to switch, change the env var and restart your client.
 
 ## Quick Start
 
@@ -477,52 +264,7 @@ Once connected, try these prompts in any MCP client:
   recovered agents on a grid.
 ```
 
-## Tech Stack
-
-- **Server**: [FastMCP](https://gofastmcp.com/) (Python)
-- **NetLogo Bridge**: [pynetlogo](https://github.com/quaquel/pynetlogo) + [JPype](https://github.com/jpype-project/jpype)
-- **Runtime**: NetLogo headless JVM
-- **Transport**: MCP stdio protocol
-
-## Project Structure
-
-```
-NetLogo_MCP/
-├── pyproject.toml              # Package config, linting & type check settings
-├── smithery.yaml               # Smithery registry configuration
-├── .mcp.json                   # MCP client configuration (works with any client)
-├── .pre-commit-config.yaml     # Pre-commit hooks (ruff, mypy)
-├── .github/workflows/ci.yml    # CI pipeline (lint, type check, test)
-├── CHANGELOG.md                # Version history
-├── src/
-│   └── netlogo_mcp/
-│       ├── server.py           # FastMCP app, stdout protection, lifespan
-│       ├── tools.py            # All 12 tools
-│       ├── resources.py        # 3 resources (docs + model source)
-│       ├── prompts.py          # 3 prompts (analyze, create, sweep)
-│       ├── config.py           # Environment variable loading
-│       ├── py.typed            # PEP 561 type marker
-│       └── data/
-│           ├── primitives.md   # NetLogo primitives reference
-│           └── programming_guide.md
-├── models/                     # Drop .nlogo/.nlogox files here
-└── tests/
-    ├── conftest.py             # Mock fixtures (no JVM needed)
-    ├── test_tools.py
-    └── test_resources.py
-```
-
-## Running Tests
-
-```bash
-# Run tests
-pytest tests/ -v
-
-# Run tests with coverage
-pytest tests/ -v --cov=netlogo_mcp --cov-report=term-missing
-```
-
-Tests use mock fixtures — no Java/NetLogo installation needed to run them.
+> **First tool call takes 30-60 seconds** while the JVM starts. Don't click stop — the NetLogo window will appear when it's ready. After that, every call is instant.
 
 ## Troubleshooting
 
@@ -532,12 +274,15 @@ Tests use mock fixtures — no Java/NetLogo installation needed to run them.
 | `JAVA_HOME is not set` | Set it to your JDK directory (not JRE) |
 | JVM crashes on startup | Make sure JAVA_HOME points to JDK 11+, not an older version |
 | `No model is loaded` | Call `open_model` or `create_model` before using other tools |
-| NetLogo syntax errors | Consult the `netlogo://docs/primitives` resource |
+| First call hangs for 30-60s | Normal — JVM is warming up. Don't click stop. |
 | Server won't connect | Run `netlogo-mcp` manually in terminal to see error output |
 
-## Contributing
+## Documentation
 
-Contributions are welcome! This is an open project — feel free to open issues, suggest features, or submit pull requests. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+- [docs/CLIENTS.md](docs/CLIENTS.md) — Setup for all 11 MCP clients
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — Project structure, running tests, architecture notes
+- [CONTRIBUTING.md](CONTRIBUTING.md) — How to contribute
+- [CHANGELOG.md](CHANGELOG.md) — Version history
 
 ## Listed on
 
