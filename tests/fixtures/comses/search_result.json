@@ -1,0 +1,70 @@
+{
+  "isFirstPage": true,
+  "isLastPage": false,
+  "currentPage": 1,
+  "numResults": 2,
+  "count": 54,
+  "numPages": 6,
+  "query": {"query": "predator-prey"},
+  "results": [
+    {
+      "identifier": "aaaaaaaa-1111-4aaa-8aaa-111111111111",
+      "title": "Wolf Sheep Predation",
+      "description": "Classic predator-prey model adapted from the NetLogo models library.",
+      "summarizedDescription": "Predators eat prey; prey eat grass; grass regrows.",
+      "allContributors": [
+        {
+          "user": {"name": "Jane Author", "institutionName": "ASU", "orcid": "0000-0001-0000-0000"},
+          "givenName": "Jane",
+          "familyName": "Author"
+        }
+      ],
+      "tags": [{"name": "predator-prey"}, {"name": "NetLogo"}],
+      "releases": [
+        {
+          "versionNumber": "1.2.0",
+          "absoluteUrl": "/codebases/aaaaaaaa-1111-4aaa-8aaa-111111111111/releases/1.2.0/",
+          "live": true,
+          "latestVersion": true,
+          "releaseLanguages": [
+            {"programmingLanguage": {"id": 19, "name": "NetLogo"}}
+          ]
+        }
+      ],
+      "latestVersionNumber": "1.2.0",
+      "firstPublishedAt": "2021-01-01",
+      "lastPublishedOn": "2023-06-15",
+      "downloadCount": 482,
+      "peerReviewed": true,
+      "doi": "10.25937/example-one",
+      "live": true
+    },
+    {
+      "identifier": "bbbbbbbb-2222-4bbb-8bbb-222222222222",
+      "title": "Python Mesa SIR",
+      "description": "A simple SIR epidemic model in Python using Mesa.",
+      "summarizedDescription": "Susceptible-Infected-Recovered dynamics over a small-world graph.",
+      "allContributors": [
+        {"user": {"name": "Ali Researcher"}, "givenName": "Ali", "familyName": "Researcher"}
+      ],
+      "tags": [{"name": "epidemic"}, {"name": "python"}, {"name": "mesa"}],
+      "releases": [
+        {
+          "versionNumber": "0.3.0",
+          "live": true,
+          "latestVersion": true,
+          "releaseLanguages": [
+            {"programmingLanguage": {"id": 100, "name": "Python"}}
+          ]
+        }
+      ],
+      "latestVersionNumber": "0.3.0",
+      "firstPublishedAt": "2022-02-02",
+      "lastPublishedOn": "2022-02-02",
+      "downloadCount": 61,
+      "peerReviewed": false,
+      "doi": null,
+      "live": true
+    }
+  ]
+}

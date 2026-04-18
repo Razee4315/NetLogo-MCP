@@ -43,3 +43,9 @@ exports/worlds/*.csv
 
 # Auto-created models (from create_model tool)
 models/_created_*.nlogox
+
+# Claude Code session scratch (worktrees, session state)
+.claude/
+
+# COMSES download cache — live data, not source
+models/comses/

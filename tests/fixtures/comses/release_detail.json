@@ -1,0 +1,19 @@
+{
+  "versionNumber": "1.2.0",
+  "live": true,
+  "submittedPackage": "path/to/package.zip",
+  "license": {"name": "MIT", "url": "https://spdx.org/licenses/MIT"},
+  "platforms": [{"name": "NetLogo"}],
+  "releaseLanguages": [
+    {"programmingLanguage": {"id": 19, "name": "NetLogo"}}
+  ],
+  "programmingLanguageTags": [{"name": "NetLogo"}],
+  "os": "platform_independent",
+  "osDisplay": "Platform Independent",
+  "dependencies": null,
+  "citationText": "Author, J. (2023). Wolf Sheep Predation (Version 1.2.0). CoMSES Computational Model Library. https://doi.org/10.25937/example-one",
+  "outputDataUrl": null,
+  "doi": "10.25937/example-one",
+  "embargoEndDate": null,
+  "reviewStatus": "reviewed"
+}
