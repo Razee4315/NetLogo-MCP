@@ -332,13 +332,35 @@ async def open_comses_model(
         version: Version string or 'latest'.
         max_mb: Max download size cap.
 
-    Returns:
-      - NetLogo case: "Loaded NetLogo model: <filename> (cached)" or "(downloaded)"
-      - Non-NetLogo case: structured JSON, see below.
+    Returns structured JSON in both NetLogo and non-NetLogo cases. See
+    shapes below. Always includes `resolved_version` so the caller can
+    pass it back into `read_comses_files` and guarantee it inspects the
+    same cache slot that was just opened.
     """
 ```
 
 This is the **single entry point** for "I want this model ready to use." It subsumes downloading. Users who want to download without opening can call `download_comses_model` directly; most AI flows will call this tool.
+
+The NetLogo response shape:
+
+```json
+{
+  "status": "loaded_netlogo",
+  "resolved_version": "1.2.0",
+  "loaded_netlogo_file": "code/WolfSheep_3.0.nlogo",
+  "all_netlogo_files": ["code/WolfSheep_3.0.nlogo", "code/WolfSheep_2.0.nlogo"],
+  "extracted_path": "models/comses/{uuid}/1.2.0/",
+  "cached": true,
+  "language": "NetLogo",
+  "title": "Wolf Sheep Predation"
+}
+```
+
+Callers (including the `explore_comses` prompt) must read `resolved_version`
+from this response and pass that concrete string into every subsequent
+`read_comses_files` call. Never re-pass `"latest"` — `"latest"` could resolve
+to a newer version published between calls, causing the AI to inspect a
+different cache slot than the model it just loaded.
 
 #### Selecting which NetLogo file to load (when the archive has more than one)
 
@@ -364,9 +386,11 @@ The non-NetLogo response shape:
 ```json
 {
   "status": "not_runnable_in_netlogo",
+  "resolved_version": "1.0.0",
   "language": "Python (Mesa)",
   "title": "SIR Epidemic Model",
-  "extracted_path": "models/comses/{uuid}/{resolved_version}/",
+  "extracted_path": "models/comses/{uuid}/1.0.0/",
+  "cached": false,
   "code_files": ["code/model.py", "code/agents.py"],
   "odd_doc": "docs/ODD.md",
   "message": "This model is in Python, not NetLogo. The source is saved locally. You can read it with the read_comses_files tool if you want to understand or adapt it. Translating it to NetLogo is possible but not automatic — ask explicitly if that's what you want."
@@ -489,10 +513,13 @@ def explore_comses(topic: str) -> list[Message]:
 The prompt instructs the AI to:
 1. Search COMSES for models matching the topic; prefer peer-reviewed + NetLogo-tagged.
 2. Show the user the top match with title, authors, description, **citation text**.
-3. Call `open_comses_model`.
+3. Call `open_comses_model`. **Capture `resolved_version` from the JSON
+   response** and reuse it for every subsequent `read_comses_files` call in
+   this flow. Never pass `"latest"` again after this point — doing so risks
+   re-resolving to a newer version than the one just loaded.
 4. If the model is NetLogo (happy path):
-   a. Call `read_comses_files` with `extensions=[".nlogo", ".nlogox"]` to
-      get the source content of whichever variant was loaded. Always include
+   a. Call `read_comses_files(version=resolved_version, extensions=[".nlogo", ".nlogox"])`
+      to get the source content of whichever variant was loaded. Always include
       both extensions — Section 4.4 may have selected an `.nlogox` file.
    b. Scan the source for `to <name>` procedure names and `to-report <name>` reporters (treat the latter as candidates for plausible state metrics; the AI cannot reliably classify utility reporters every time, and that's accepted for v1).
    c. **Fallback if nothing useful is found:** if no procedure with a name resembling `setup` / `initialize` / `start` exists, OR no candidate reporters are found, **stop after loading.** Do not force-run commands the model doesn't define. Report the discovered procedures/reporters (if any) and ask the user which to run.
@@ -501,7 +528,9 @@ The prompt instructs the AI to:
    f. Summarize results, referencing the ODD doc content obtained via `read_comses_files`.
 5. If not NetLogo:
    a. The `open_comses_model` call already downloaded and extracted the archive.
-   b. Call `read_comses_files` to get the ODD doc and a summary of what the model does.
+   b. Call `read_comses_files(version=resolved_version, ...)` — using the
+      `resolved_version` captured in step 3 — to get the ODD doc and a
+      summary of what the model does.
    c. State the language clearly, show citation, summarize the ODD findings, and stop.
    d. Do not auto-translate. If the user later explicitly asks to translate, see "On Translation" below.
 
@@ -689,18 +718,18 @@ Server (happy path, NetLogo model):
 1. `search_comses("rumor spreading")` → N matches.
 2. AI picks a top peer-reviewed NetLogo match.
 3. `get_comses_model(uuid)` → AI presents title, authors, **citation text**, license.
-4. `open_comses_model(uuid)` → resolves `"latest"` to concrete version, downloads safely (or uses cache), extracts, picks the right `.nlogo` file per Section 4.4 rules, loads it into NetLogo.
-5. `read_comses_files(uuid, extensions=[".nlogo", ".nlogox"])` → AI reads the actual source (whichever variant was loaded per Section 4.4) to **discover** real procedure names and reporters. **The AI does not fabricate commands.**
+4. `open_comses_model(uuid)` → resolves `"latest"` to concrete version, downloads safely (or uses cache), extracts, picks the right `.nlogo` file per Section 4.4 rules, loads it into NetLogo. Returns JSON with `resolved_version` (e.g. `"1.2.0"`). **The AI pins this value and reuses it in every later call below.**
+5. `read_comses_files(uuid, version=resolved_version, extensions=[".nlogo", ".nlogox"])` → AI reads the actual source (whichever variant was loaded per Section 4.4) to **discover** real procedure names and reporters. **The AI does not fabricate commands.**
 6. **Branch based on discovery:**
    - **Plausible setup + useful reporters found:** `command("<discovered setup>")`. If that call returns an error, **stop and ask the user** — do not guess alternates. Otherwise → `run_simulation(<N ticks>, [<discovered reporters>])` → `export_view()`.
    - **No plausible setup OR no useful reporters found:** stop after loading. Report to the user what was found (maybe just `setup` with no reporters, or an unusual procedure name). Ask which procedure to run or whether they want to inspect the source first.
-7. `read_comses_files(uuid, extensions=[".md", ".txt"], max_total_bytes=50000)` → AI reads the ODD doc and summarizes what the model demonstrates.
+7. `read_comses_files(uuid, version=resolved_version, extensions=[".md", ".txt"], max_total_bytes=50000)` → AI reads the ODD doc and summarizes what the model demonstrates.
 
 Non-NetLogo model flow:
 1. `search_comses("rumor spreading")` → top match is Python.
 2. `get_comses_model(uuid)` → citation text + metadata.
-3. `open_comses_model(uuid)` → downloads + extracts (but does NOT load NetLogo). Returns the non-NetLogo JSON with language, code paths, ODD doc path.
-4. `read_comses_files(uuid, extensions=[".md", ".txt"])` → AI reads the ODD doc.
+3. `open_comses_model(uuid)` → downloads + extracts (but does NOT load NetLogo). Returns the non-NetLogo JSON with `resolved_version`, language, code paths, ODD doc path. **The AI pins `resolved_version` for reuse.**
+4. `read_comses_files(uuid, version=resolved_version, extensions=[".md", ".txt"])` → AI reads the ODD doc.
 5. AI reports: "This model is in Python (Mesa). It was downloaded to models/comses/... and I read the ODD documentation — here is a summary: [...]. I can explain the source code, or, if you explicitly ask, translate it to NetLogo (approximately). Otherwise we stop here."
 6. Flow stops unless user asks to translate.
 
