@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -297,3 +299,399 @@ def _patch_client_factory(monkeypatch, handler) -> None:
         return original(client=http)
 
     monkeypatch.setattr(tools._comses, "ComsesClient", factory)
+
+
+# ── Zip safety + extraction ──────────────────────────────────────────────────
+
+
+def _make_zip(entries: dict[str, bytes]) -> bytes:
+    """Build an in-memory zip with the given {path: bytes} entries."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+def test_rejects_zip_with_path_traversal(tmp_path):
+    """A zip with `../etc/passwd` must be rejected before extraction."""
+    zip_bytes = _make_zip({"../etc/passwd": b"pwned"})
+    archive = tmp_path / "evil.zip"
+    archive.write_bytes(zip_bytes)
+
+    with pytest.raises(comses.ComsesSafetyError):
+        comses.safe_extract_zip(archive, tmp_path / "final", max_bytes=10_000_000)
+    assert not (tmp_path / "final").exists()
+
+
+def test_rejects_zip_with_absolute_path_member(tmp_path):
+    # Drive letter path should be rejected too.
+    zip_bytes = _make_zip({"C:/windows/evil.txt": b"x"})
+    archive = tmp_path / "evil.zip"
+    archive.write_bytes(zip_bytes)
+    with pytest.raises(comses.ComsesSafetyError):
+        comses.safe_extract_zip(archive, tmp_path / "final", max_bytes=10_000_000)
+
+
+def test_rejects_zip_bomb_by_uncompressed_sum(tmp_path):
+    """Uncompressed total > 2 × cap triggers bomb rejection."""
+    # One 500-byte file, cap 100 bytes → 500 > 200.
+    zip_bytes = _make_zip({"big.bin": b"A" * 500})
+    archive = tmp_path / "bomb.zip"
+    archive.write_bytes(zip_bytes)
+
+    with pytest.raises(comses.ComsesSafetyError):
+        comses.safe_extract_zip(archive, tmp_path / "final", max_bytes=100)
+
+
+def test_safe_extract_happy_path_writes_marker(tmp_path):
+    zip_bytes = _make_zip(
+        {
+            "codemeta.json": b'{"programmingLanguage": "NetLogo"}',
+            "code/model.nlogo": b"to setup\nend\n",
+            "docs/ODD.md": b"# ODD\n\nSome doc.\n",
+        }
+    )
+    archive = tmp_path / "good.zip"
+    archive.write_bytes(zip_bytes)
+    final = tmp_path / "cache" / "xxx" / "1.0.0"
+
+    out = comses.safe_extract_zip(archive, final, max_bytes=10_000_000)
+    assert out == final
+    assert (final / comses.COMPLETION_MARKER).is_file()
+    assert (final / "code" / "model.nlogo").read_text().startswith("to setup")
+    assert comses.is_cache_trusted(final)
+
+
+def test_cleans_up_temp_on_extract_failure(tmp_path):
+    zip_bytes = _make_zip({"../escape.txt": b"bad"})
+    archive = tmp_path / "evil.zip"
+    archive.write_bytes(zip_bytes)
+    final = tmp_path / "final"
+
+    with pytest.raises(comses.ComsesSafetyError):
+        comses.safe_extract_zip(archive, final, max_bytes=10_000_000)
+
+    # No tmp-*-final directory should linger.
+    tmp_root = final.parent / ".tmp"
+    if tmp_root.exists():
+        leftover = list(tmp_root.iterdir())
+        assert not leftover, f"Leftover temp dirs: {leftover}"
+
+
+def test_is_cache_trusted_requires_marker(tmp_path):
+    final = tmp_path / "dir"
+    final.mkdir()
+    assert not comses.is_cache_trusted(final)
+    (final / comses.COMPLETION_MARKER).write_text("ok")
+    assert comses.is_cache_trusted(final)
+
+
+def test_race_orphan_without_marker_is_wiped_and_retried(tmp_path):
+    """If final_dir exists but has no marker, safe_extract wipes and retries."""
+    zip_bytes = _make_zip({"code/ok.nlogo": b"to setup\nend\n"})
+    archive = tmp_path / "good.zip"
+    archive.write_bytes(zip_bytes)
+    final = tmp_path / "cache" / "xxx" / "1.0.0"
+    final.mkdir(parents=True)
+    # Leave a stale unmarked file — simulating a prior failed/interrupted writer.
+    (final / "stale.txt").write_text("leftover")
+
+    comses.safe_extract_zip(archive, final, max_bytes=10_000_000)
+    assert (final / comses.COMPLETION_MARKER).is_file()
+    assert not (final / "stale.txt").exists(), (
+        "Orphan should have been wiped before retry"
+    )
+
+
+def test_race_peer_writer_with_marker_is_respected(tmp_path):
+    zip_bytes = _make_zip({"code/ok.nlogo": b"to setup\nend\n"})
+    archive = tmp_path / "good.zip"
+    archive.write_bytes(zip_bytes)
+    final = tmp_path / "cache" / "xxx" / "1.0.0"
+    final.mkdir(parents=True)
+    (final / "peer.txt").write_text("theirs")
+    (final / comses.COMPLETION_MARKER).write_text("ok")
+
+    comses.safe_extract_zip(archive, final, max_bytes=10_000_000)
+    # Peer's files preserved.
+    assert (final / "peer.txt").read_text() == "theirs"
+    assert (final / comses.COMPLETION_MARKER).is_file()
+
+
+# ── Post-extract inspection ──────────────────────────────────────────────────
+
+
+def test_detect_language_from_codemeta(tmp_path):
+    (tmp_path / "codemeta.json").write_text(
+        json.dumps({"programmingLanguage": {"name": "Python"}})
+    )
+    assert comses.detect_language(tmp_path) == "Python"
+
+
+def test_detect_language_fallback_by_extension(tmp_path):
+    (tmp_path / "code").mkdir()
+    (tmp_path / "code" / "a.nlogo").write_text("x")
+    (tmp_path / "code" / "b.nlogo").write_text("x")
+    assert comses.detect_language(tmp_path) == "NetLogo"
+
+
+def test_select_netlogo_file_prefers_code_dir_and_nlogox(tmp_path):
+    root = tmp_path
+    (root / "top.nlogo").write_text("x")
+    (root / "code").mkdir()
+    (root / "code" / "old.nlogo").write_text("x")
+    (root / "code" / "new.nlogox").write_text("x")
+    files = comses.find_netlogo_files(root)
+    selected = comses.select_netlogo_file(files, root)
+    assert selected is not None
+    assert selected.name == "new.nlogox"
+
+
+def test_select_netlogo_file_lex_largest_tiebreaker(tmp_path):
+    root = tmp_path
+    (root / "code").mkdir()
+    # Two .nlogox files, lex ordering picks the "larger" one.
+    (root / "code" / "WolfSheep_2.0.nlogox").write_text("x")
+    (root / "code" / "WolfSheep_3.0.nlogox").write_text("x")
+    files = comses.find_netlogo_files(root)
+    selected = comses.select_netlogo_file(files, root)
+    assert selected is not None and selected.name == "WolfSheep_3.0.nlogox"
+
+
+def test_select_netlogo_file_none_when_empty(tmp_path):
+    assert comses.select_netlogo_file([], tmp_path) is None
+
+
+def test_find_odd_doc_prefers_odd_then_readme(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "ODD.md").write_text("odd")
+    (tmp_path / "README.md").write_text("readme")
+    found = comses.find_odd_doc(tmp_path)
+    assert found is not None and found.name == "ODD.md"
+
+
+# ── High-level download_release + MCP tool ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_download_release_uses_cache_when_marker_present(tmp_path):
+    """If the cache dir already has the marker, no HTTP call is made."""
+    identifier = "abc"
+    version = "1.0.0"
+    cache_root = tmp_path / "cache"
+    final = cache_root / identifier / version
+    final.mkdir(parents=True)
+    (final / "code").mkdir()
+    (final / "code" / "model.nlogo").write_text("to setup\nend\n")
+    (final / comses.COMPLETION_MARKER).write_text("ok")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(
+            f"No HTTP call expected when cache is warm; got {request.url}"
+        )
+
+    async with _make_client(handler) as client:
+        outcome = await comses.download_release(
+            client, identifier, version, cache_root=cache_root, max_bytes=10_000_000
+        )
+
+    assert outcome.cached is True
+    assert outcome.resolved_version == version
+    assert outcome.extracted_path == final
+    assert outcome.selected_netlogo_file is not None
+    assert outcome.selected_netlogo_file.name == "model.nlogo"
+
+
+@pytest.mark.asyncio
+async def test_download_release_resolves_latest_and_extracts(tmp_path):
+    identifier = "aaaaaaaa-1111-4aaa-8aaa-111111111111"
+    cache_root = tmp_path / "cache"
+    archive_bytes = _make_zip(
+        {
+            "codemeta.json": b'{"programmingLanguage": "NetLogo"}',
+            "code/WolfSheep.nlogo": b"to setup\nend\nto-report population\n  report 1\nend\n",
+            "docs/ODD.md": b"# ODD\n",
+        }
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        p = request.url.path
+        if p.endswith(f"/codebases/{identifier}/") and request.method == "GET":
+            return httpx.Response(200, json=_fx("codebase_detail.json"))
+        if "/releases/1.2.0/download/" in p and request.method == "HEAD":
+            return httpx.Response(
+                200,
+                headers={
+                    "Content-Length": str(len(archive_bytes)),
+                    "Content-Type": "application/zip",
+                },
+            )
+        if "/releases/1.2.0/download/" in p and request.method == "GET":
+            return httpx.Response(
+                200,
+                content=archive_bytes,
+                headers={"Content-Type": "application/zip"},
+            )
+        if "/releases/1.2.0/" in p:
+            return httpx.Response(200, json=_fx("release_detail.json"))
+        raise AssertionError(f"Unexpected request: {request.method} {p}")
+
+    async with _make_client(handler) as client:
+        outcome = await comses.download_release(
+            client,
+            identifier,
+            "latest",
+            cache_root=cache_root,
+            max_bytes=10_000_000,
+        )
+
+    assert outcome.cached is False
+    assert outcome.resolved_version == "1.2.0"
+    assert "latest" not in str(outcome.extracted_path)
+    assert outcome.language == "NetLogo"
+    assert outcome.selected_netlogo_file is not None
+    assert outcome.selected_netlogo_file.name == "WolfSheep.nlogo"
+    assert outcome.odd_doc is not None and outcome.odd_doc.name == "ODD.md"
+    assert outcome.license_name == "MIT"
+    assert outcome.title == "Wolf Sheep Predation"
+    # Second call is a cache hit.
+    async with _make_client(lambda r: httpx.Response(200, json=_fx("codebase_detail.json"))) as client:
+        again = await comses.download_release(
+            client, identifier, "1.2.0", cache_root=cache_root, max_bytes=10_000_000
+        )
+    assert again.cached is True
+
+
+@pytest.mark.asyncio
+async def test_download_release_refuses_oversize_via_head(tmp_path):
+    identifier = "abc"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        p = request.url.path
+        if request.method == "HEAD":
+            return httpx.Response(
+                200,
+                headers={
+                    "Content-Length": str(100_000_000),
+                    "Content-Type": "application/zip",
+                },
+            )
+        if "/releases/" in p:
+            return httpx.Response(200, json=_fx("release_detail.json"))
+        return httpx.Response(200, json=_fx("codebase_detail.json"))
+
+    async with _make_client(handler) as client:
+        with pytest.raises(comses.ComsesHTTPError, match="exceeds cap"):
+            await comses.download_release(
+                client,
+                identifier,
+                "1.2.0",
+                cache_root=tmp_path / "cache",
+                max_bytes=1_000_000,
+            )
+
+
+@pytest.mark.asyncio
+async def test_download_release_refuses_non_zip_response(tmp_path):
+    """An HTML interstitial response must fail hard, not corrupt the cache."""
+    identifier = "abc"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        p = request.url.path
+        if request.method == "HEAD":
+            return httpx.Response(200, headers={"Content-Type": "application/zip"})
+        if "/releases/" in p and request.method == "GET" and "/download/" in p:
+            return httpx.Response(
+                200,
+                content=b"<html>login form</html>",
+                headers={"Content-Type": "text/html"},
+            )
+        if "/releases/" in p:
+            return httpx.Response(200, json=_fx("release_detail.json"))
+        return httpx.Response(200, json=_fx("codebase_detail.json"))
+
+    async with _make_client(handler) as client:
+        with pytest.raises(comses.ComsesHTTPError, match="zip"):
+            await comses.download_release(
+                client,
+                identifier,
+                "1.2.0",
+                cache_root=tmp_path / "cache",
+                max_bytes=10_000_000,
+            )
+    # No cache dir should exist.
+    assert not (tmp_path / "cache" / identifier / "1.2.0").exists()
+
+
+@pytest.mark.asyncio
+async def test_download_release_refuses_release_without_submitted_package(tmp_path):
+    """Release metadata with submittedPackage: null must fail early."""
+    identifier = "abc"
+    empty_release = dict(_fx("release_detail.json"))
+    empty_release["submittedPackage"] = None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        p = request.url.path
+        if "/releases/" in p:
+            return httpx.Response(200, json=empty_release)
+        return httpx.Response(200, json=_fx("codebase_detail.json"))
+
+    async with _make_client(handler) as client:
+        with pytest.raises(comses.ComsesHTTPError, match="submittedPackage"):
+            await comses.download_release(
+                client,
+                identifier,
+                "1.2.0",
+                cache_root=tmp_path / "cache",
+                max_bytes=10_000_000,
+            )
+
+
+@pytest.mark.asyncio
+async def test_download_comses_model_tool_returns_expected_shape(monkeypatch, tmp_path):
+    from netlogo_mcp import tools
+
+    identifier = "aaaaaaaa-1111-4aaa-8aaa-111111111111"
+    archive_bytes = _make_zip(
+        {
+            "codemeta.json": b'{"programmingLanguage": "NetLogo"}',
+            "code/WolfSheep_3.0.nlogox": b"to setup\nend\n",
+            "code/WolfSheep_2.0.nlogo": b"to setup\nend\n",
+            "docs/ODD.md": b"# ODD",
+        }
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        p = request.url.path
+        if request.method == "HEAD":
+            return httpx.Response(200, headers={"Content-Type": "application/zip"})
+        if "/download/" in p:
+            return httpx.Response(
+                200, content=archive_bytes, headers={"Content-Type": "application/zip"}
+            )
+        if "/releases/" in p:
+            return httpx.Response(200, json=_fx("release_detail.json"))
+        return httpx.Response(200, json=_fx("codebase_detail.json"))
+
+    _patch_client_factory(monkeypatch, handler)
+    monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: tmp_path / "cache")
+    monkeypatch.setattr(tools, "get_comses_max_download_mb", lambda: 10.0)
+
+    ctx = MagicMock()
+    raw = await tools.download_comses_model(
+        ctx, identifier=identifier, version="latest"
+    )
+    data = json.loads(raw)
+
+    assert data["resolved_version"] == "1.2.0"
+    assert data["language"] == "NetLogo"
+    assert data["cached"] is False
+    assert data["loaded_netlogo_file"] == "code/WolfSheep_3.0.nlogox"
+    assert sorted(data["all_netlogo_files"]) == [
+        "code/WolfSheep_2.0.nlogo",
+        "code/WolfSheep_3.0.nlogox",
+    ]
+    assert data["odd_doc"] == "docs/ODD.md"
+    assert data["license"] == "MIT"
+    assert "latest" not in data["extracted_path"]

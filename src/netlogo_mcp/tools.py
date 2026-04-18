@@ -14,7 +14,12 @@ from fastmcp.exceptions import ToolError
 from fastmcp.utilities.types import Image
 
 from . import comses as _comses
-from .config import get_exports_dir, get_models_dir
+from .config import (
+    get_comses_cache_dir,
+    get_comses_max_download_mb,
+    get_exports_dir,
+    get_models_dir,
+)
 from .server import mcp
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -657,3 +662,80 @@ async def get_comses_model(ctx: Context, identifier: str) -> str:
         raise ToolError(f"COMSES get_comses_model failed: {e}") from e
 
     return json.dumps(_compact_codebase_detail(data), indent=2)
+
+
+def _outcome_to_payload(outcome: _comses.DownloadOutcome) -> dict:
+    """Shape a DownloadOutcome into the JSON the MCP tool returns."""
+    extracted = outcome.extracted_path
+    rel = lambda p: p.relative_to(extracted).as_posix() if p else None  # noqa: E731
+    return {
+        "identifier": outcome.identifier,
+        "resolved_version": outcome.resolved_version,
+        "extracted_path": str(extracted).replace("\\", "/"),
+        "cached": outcome.cached,
+        "language": outcome.language,
+        "title": outcome.title,
+        "license": outcome.license_name,
+        "all_netlogo_files": [rel(p) for p in outcome.netlogo_files],
+        "loaded_netlogo_file": rel(outcome.selected_netlogo_file),
+        "code_files": [rel(p) for p in outcome.code_files],
+        "odd_doc": rel(outcome.odd_doc),
+    }
+
+
+@mcp.tool()
+async def download_comses_model(
+    ctx: Context,
+    identifier: str,
+    version: str = "latest",
+    max_mb: float = 0.0,
+) -> str:
+    """Download and safely extract a COMSES model archive.
+
+    Standalone "fetch but don't open" tool. Most AI flows should use
+    `open_comses_model` instead — it subsumes this tool and also loads
+    NetLogo models into the workspace.
+
+    Safety guarantees:
+    - `version="latest"` is resolved to a concrete version BEFORE any cache
+      path is computed. Cache dirs are named by the resolved version.
+    - HEAD request screens oversize archives before streaming.
+    - Stream enforces the byte cap mid-download; overruns abort and delete
+      the partial file.
+    - Zip members are validated against path traversal before extraction.
+    - Uncompressed total is checked against 2 × cap to reject zip bombs.
+    - Extract happens in a temp directory; only a successful extract is
+      moved atomically into the cache. A `.comses_complete` marker is
+      written on success; future calls only trust cached dirs with the marker.
+
+    Args:
+        identifier: Full model UUID (from `search_comses`).
+        version: Version string (e.g. "1.2.0") or "latest".
+        max_mb: Size cap in MB. Pass 0 or omit to use
+            the `COMSES_MAX_DOWNLOAD_MB` env var (default 50 MB).
+
+    Returns JSON with: `identifier`, `resolved_version`, `extracted_path`,
+    `cached`, `language`, `title`, `license`, `all_netlogo_files`,
+    `loaded_netlogo_file` (deterministic pick per plan Section 4.4),
+    `code_files`, and `odd_doc`.
+    """
+    if not identifier:
+        raise ToolError("identifier is required")
+    cap_mb = max_mb if max_mb and max_mb > 0 else get_comses_max_download_mb()
+    max_bytes = int(cap_mb * 1024 * 1024)
+    cache_root = get_comses_cache_dir()
+    try:
+        async with _comses.ComsesClient() as client:
+            outcome = await _comses.download_release(
+                client,
+                identifier,
+                version,
+                cache_root=cache_root,
+                max_bytes=max_bytes,
+            )
+    except _comses.ComsesSafetyError as e:
+        raise ToolError(f"COMSES archive rejected for safety reasons: {e}") from e
+    except _comses.ComsesError as e:
+        raise ToolError(f"COMSES download failed: {e}") from e
+
+    return json.dumps(_outcome_to_payload(outcome), indent=2)

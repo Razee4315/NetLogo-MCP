@@ -578,6 +578,150 @@ def find_odd_doc(extracted_dir: Path) -> Path | None:
     return None
 
 
+@dataclass
+class DownloadOutcome:
+    """Result of a high-level download_release call.
+
+    Consumed by both `download_comses_model` and `open_comses_model` tools.
+    """
+
+    identifier: str
+    resolved_version: str
+    extracted_path: Path
+    cached: bool
+    language: str
+    netlogo_files: list[Path]
+    selected_netlogo_file: Path | None
+    code_files: list[Path]
+    odd_doc: Path | None
+    license_name: str | None
+    title: str | None
+
+
+async def download_release(
+    client: ComsesClient,
+    identifier: str,
+    version: str,
+    *,
+    cache_root: Path,
+    max_bytes: int,
+) -> DownloadOutcome:
+    """End-to-end: resolve, check cache, HEAD, stream, safely extract, inspect.
+
+    Idempotent on cached state: if `cache_root/{uuid}/{concrete_version}/`
+    has `.comses_complete`, no network round-trips to /download/ happen and
+    `cached=True` is returned.
+
+    Raises `ComsesError` (or a subclass) on any failure. On size/safety
+    failure, no cache directory is created.
+    """
+    resolved = await client.resolve_latest(identifier, version)
+
+    final_dir = cache_root / identifier / resolved
+    if is_cache_trusted(final_dir):
+        return _inspect_extracted(
+            identifier=identifier,
+            resolved_version=resolved,
+            extracted_path=final_dir,
+            cached=True,
+            title=None,
+            license_name=None,
+        )
+
+    # Fetch release metadata for title/license + to verify a downloadable package.
+    title: str | None = None
+    license_name: str | None = None
+    try:
+        rel = await client.get_release(identifier, resolved)
+        if not rel.get("submittedPackage"):
+            raise ComsesHTTPError(
+                f"Release {resolved} has no downloadable package "
+                f"(submittedPackage is null). The authors may not have "
+                f"uploaded an archive."
+            )
+        license_name = (rel.get("license") or {}).get("name")
+    except ComsesHTTPError:
+        raise
+    except ComsesError:
+        # Tolerate metadata fetch failure if we can still attempt the download.
+        pass
+    try:
+        cb = await client.get_codebase(identifier)
+        title = cb.get("title")
+    except ComsesError:
+        pass
+
+    # HEAD screen: refuse obvious oversize before streaming.
+    try:
+        content_length, _ = await client.head_download(identifier, resolved)
+    except ComsesHTTPError:
+        content_length = None  # HEAD may not be supported; defer to stream cap.
+    if content_length is not None and content_length > max_bytes:
+        raise ComsesHTTPError(
+            f"Archive is {content_length} bytes, exceeds cap of {max_bytes}. "
+            "Increase max_mb or COMSES_MAX_DOWNLOAD_MB if you really want it."
+        )
+
+    # Stream to a unique temp file; then safe-extract.
+    tmp_root = cache_root / ".tmp"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    tmp_zip = tmp_root / f"{identifier}-{resolved}-{os.getpid()}.zip"
+    try:
+        await client.stream_download(
+            identifier, resolved, tmp_zip, max_bytes=max_bytes
+        )
+        safe_extract_zip(
+            tmp_zip,
+            final_dir,
+            max_bytes=max_bytes,
+            tmp_root=tmp_root,
+        )
+    finally:
+        try:
+            tmp_zip.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    return _inspect_extracted(
+        identifier=identifier,
+        resolved_version=resolved,
+        extracted_path=final_dir,
+        cached=False,
+        title=title,
+        license_name=license_name,
+    )
+
+
+def _inspect_extracted(
+    *,
+    identifier: str,
+    resolved_version: str,
+    extracted_path: Path,
+    cached: bool,
+    title: str | None,
+    license_name: str | None,
+) -> DownloadOutcome:
+    """Walk the extracted directory and build a DownloadOutcome."""
+    language = detect_language(extracted_path)
+    netlogo = find_netlogo_files(extracted_path)
+    selected = select_netlogo_file(netlogo, extracted_path)
+    code = find_code_files(extracted_path)
+    odd = find_odd_doc(extracted_path)
+    return DownloadOutcome(
+        identifier=identifier,
+        resolved_version=resolved_version,
+        extracted_path=extracted_path,
+        cached=cached,
+        language=language,
+        netlogo_files=netlogo,
+        selected_netlogo_file=selected,
+        code_files=code,
+        odd_doc=odd,
+        license_name=license_name,
+        title=title,
+    )
+
+
 def find_code_files(extracted_dir: Path) -> list[Path]:
     """Plausible source files (one level deep under code/, or same at root)."""
     code_exts = (".nlogo", ".nlogox", ".py", ".r", ".R", ".jl", ".java")
