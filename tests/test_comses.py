@@ -695,3 +695,239 @@ async def test_download_comses_model_tool_returns_expected_shape(monkeypatch, tm
     assert data["odd_doc"] == "docs/ODD.md"
     assert data["license"] == "MIT"
     assert "latest" not in data["extracted_path"]
+
+
+# ── open_comses_model tool ───────────────────────────────────────────────────
+
+
+def _prime_cache(cache_root: Path, identifier: str, version: str, files: dict[str, bytes]) -> Path:
+    """Write a fully-marked cache directory so read/open tools can skip download."""
+    final = cache_root / identifier / version
+    final.mkdir(parents=True, exist_ok=True)
+    for rel, data in files.items():
+        path = final / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    (final / comses.COMPLETION_MARKER).write_text("ok", encoding="utf-8")
+    return final
+
+
+@pytest.mark.asyncio
+async def test_open_comses_model_loads_netlogo_when_cached(monkeypatch, tmp_path, mock_context, mock_nl):
+    from netlogo_mcp import tools
+
+    identifier = "abc"
+    version = "1.0.0"
+    cache_root = tmp_path / "cache"
+    _prime_cache(
+        cache_root,
+        identifier,
+        version,
+        {
+            "code/Wolf.nlogo": b"to setup\nend\nto go\nend\n",
+            "codemeta.json": b'{"programmingLanguage": "NetLogo"}',
+            "docs/ODD.md": b"# ODD",
+        },
+    )
+
+    monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: cache_root)
+    # No HTTP should happen at all on a warm cache + concrete version.
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"Unexpected request: {request.url}")
+
+    _patch_client_factory(monkeypatch, handler)
+
+    raw = await tools.open_comses_model(mock_context, identifier=identifier, version=version)
+    data = json.loads(raw)
+
+    assert data["status"] == "loaded_netlogo"
+    assert data["resolved_version"] == version
+    assert data["cached"] is True
+    assert data["loaded_netlogo_file"] == "code/Wolf.nlogo"
+    assert mock_nl._model_loaded is True
+    assert "Pin resolved_version" in data["message"]
+
+
+@pytest.mark.asyncio
+async def test_open_comses_model_non_netlogo_returns_structured_json(monkeypatch, tmp_path, mock_context, mock_nl):
+    from netlogo_mcp import tools
+
+    identifier = "abc"
+    version = "1.0.0"
+    cache_root = tmp_path / "cache"
+    _prime_cache(
+        cache_root,
+        identifier,
+        version,
+        {
+            "code/model.py": b"# python\n",
+            "codemeta.json": b'{"programmingLanguage": {"name": "Python"}}',
+            "docs/ODD.md": b"# ODD",
+        },
+    )
+
+    monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: cache_root)
+    _patch_client_factory(monkeypatch, lambda r: (_ for _ in ()).throw(AssertionError("no HTTP expected")))
+
+    raw = await tools.open_comses_model(mock_context, identifier=identifier, version=version)
+    data = json.loads(raw)
+
+    assert data["status"] == "not_runnable_in_netlogo"
+    assert data["language"] == "Python"
+    assert data["loaded_netlogo_file"] is None
+    assert mock_nl._model_loaded is False
+    assert "not automatic" in data["message"]
+
+
+# ── read_comses_files tool ───────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_read_comses_files_priority_odd_first_then_nlogo(monkeypatch, tmp_path, mock_context):
+    from netlogo_mcp import tools
+
+    identifier = "abc"
+    version = "1.0.0"
+    cache_root = tmp_path / "cache"
+    _prime_cache(
+        cache_root,
+        identifier,
+        version,
+        {
+            "docs/ODD.md": b"# ODD\nThis is the ODD doc.\n",
+            "code/Wolf.nlogo": b"to setup\nend\n",
+            "code/helper.py": b"# python helper\n",
+        },
+    )
+    monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: cache_root)
+
+    raw = await tools.read_comses_files(mock_context, identifier=identifier, version=version)
+    data = json.loads(raw)
+
+    assert data["resolved_version"] == version
+    keys = list(data["files"].keys())
+    # ODD first, then .nlogo, then helper.py.
+    assert keys.index("docs/ODD.md") < keys.index("code/Wolf.nlogo")
+    assert keys.index("code/Wolf.nlogo") < keys.index("code/helper.py")
+
+
+@pytest.mark.asyncio
+async def test_read_comses_files_respects_byte_cap_and_truncates(monkeypatch, tmp_path, mock_context):
+    from netlogo_mcp import tools
+
+    identifier = "abc"
+    version = "1.0.0"
+    cache_root = tmp_path / "cache"
+    # One ODD doc small, one big .nlogo that will be truncated.
+    big = ("line\n" * 1000).encode("utf-8")  # 5000 bytes
+    _prime_cache(
+        cache_root,
+        identifier,
+        version,
+        {"docs/ODD.md": b"short\n", "code/big.nlogo": big},
+    )
+    monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: cache_root)
+
+    raw = await tools.read_comses_files(
+        mock_context, identifier=identifier, version=version, max_total_bytes=500
+    )
+    data = json.loads(raw)
+
+    odd = data["files"]["docs/ODD.md"]
+    big_entry = data["files"]["code/big.nlogo"]
+    assert odd["truncated"] is False
+    assert big_entry["truncated"] is True
+    assert big_entry["returned_size"] < big_entry["full_size"]
+    assert data["any_truncated"] is True
+    # Truncation must land on a line boundary.
+    assert big_entry["content"].endswith("\n")
+
+
+@pytest.mark.asyncio
+async def test_read_comses_files_omits_files_with_reasons(monkeypatch, tmp_path, mock_context):
+    from netlogo_mcp import tools
+
+    identifier = "abc"
+    version = "1.0.0"
+    cache_root = tmp_path / "cache"
+    _prime_cache(
+        cache_root,
+        identifier,
+        version,
+        {
+            "data/input.csv": b"col\n1\n",
+            "code/Wolf.nlogo": b"to setup\nend\n",
+        },
+    )
+    monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: cache_root)
+
+    raw = await tools.read_comses_files(mock_context, identifier=identifier, version=version)
+    data = json.loads(raw)
+    assert "data/input.csv" in data["omitted_reason_by_file"]
+    assert data["omitted_reason_by_file"]["data/input.csv"] == "extension_not_in_filter"
+
+
+@pytest.mark.asyncio
+async def test_read_comses_files_errors_when_cache_missing(monkeypatch, tmp_path, mock_context):
+    from fastmcp.exceptions import ToolError
+
+    from netlogo_mcp import tools
+
+    monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: tmp_path / "cache")
+    with pytest.raises(ToolError, match="missing or incomplete"):
+        await tools.read_comses_files(
+            mock_context, identifier="unknown", version="1.0.0"
+        )
+
+
+@pytest.mark.asyncio
+async def test_read_comses_files_zero_match_returns_empty_files(monkeypatch, tmp_path, mock_context):
+    from netlogo_mcp import tools
+
+    identifier = "abc"
+    version = "1.0.0"
+    cache_root = tmp_path / "cache"
+    _prime_cache(cache_root, identifier, version, {"data/input.csv": b"x"})
+    monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: cache_root)
+
+    raw = await tools.read_comses_files(
+        mock_context,
+        identifier=identifier,
+        version=version,
+        extensions=[".nlogo"],
+    )
+    data = json.loads(raw)
+    assert data["files"] == {}
+    assert data["total_returned_bytes"] == 0
+    assert data["any_truncated"] is False
+    assert "data/input.csv" in data["omitted_files"]
+
+
+@pytest.mark.asyncio
+async def test_read_comses_files_resolves_latest_via_http(monkeypatch, tmp_path, mock_context):
+    from netlogo_mcp import tools
+
+    identifier = "aaaaaaaa-1111-4aaa-8aaa-111111111111"
+    cache_root = tmp_path / "cache"
+    # Prime cache at resolved 1.2.0 (from fixture).
+    _prime_cache(
+        cache_root,
+        identifier,
+        "1.2.0",
+        {"docs/ODD.md": b"# ODD\n"},
+    )
+    monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: cache_root)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # Only get_codebase (for latest resolution) should be called.
+        assert request.url.path.endswith(f"/codebases/{identifier}/")
+        return httpx.Response(200, json=_fx("codebase_detail.json"))
+
+    _patch_client_factory(monkeypatch, handler)
+
+    raw = await tools.read_comses_files(
+        mock_context, identifier=identifier, version="latest"
+    )
+    data = json.loads(raw)
+    assert data["resolved_version"] == "1.2.0"
+    assert "docs/ODD.md" in data["files"]
