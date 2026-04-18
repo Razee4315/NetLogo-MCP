@@ -207,19 +207,40 @@ class ComsesClient:
     # ── Download (HEAD + streamed body) ──────────────────────────────────────
 
     def _download_url(self, identifier: str, version: str) -> str:
+        """Build a UUID-based download URL (fallback path).
+
+        Real COMSES requires the numeric codebase ID (from the release's
+        `absoluteUrl`) for /download/ to return a zip — UUID 404s. Prefer
+        `resolve_download_url` over this when you have release metadata.
+        """
         return f"{self._base_url}/codebases/{identifier}/releases/{version}/download/"
 
+    async def resolve_download_url(self, identifier: str, version: str) -> str:
+        """Return the correct /download/ URL for a release.
+
+        COMSES accepts the UUID for metadata endpoints but requires the
+        numeric codebase id for the download endpoint. Fetch the release
+        once and build the URL from its `absoluteUrl` (e.g.
+        `/codebases/5445/releases/2.0.0/`).
+        """
+        rel = await self.get_release(identifier, version)
+        abs_url = rel.get("absoluteUrl")
+        if isinstance(abs_url, str) and abs_url.startswith("/"):
+            return f"{self._base_url}{abs_url.rstrip('/')}/download/"
+        # Fallback to UUID path if the field is missing — may 404.
+        return self._download_url(identifier, version)
+
     async def head_download(
-        self, identifier: str, version: str
+        self, identifier: str, version: str, *, url: str | None = None
     ) -> tuple[int | None, str]:
         """Return (content_length_or_None, content_type).
 
         `Content-Length` is advisory — some responses omit it. The real cap is
-        enforced at stream time.
+        enforced at stream time. Pass `url` to skip URL resolution when the
+        caller already knows the correct /download/ path.
         """
-        resp = await self._request_with_retry(
-            "HEAD", self._download_url(identifier, version)
-        )
+        target = url or self._download_url(identifier, version)
+        resp = await self._request_with_retry("HEAD", target)
         if resp.status_code >= 400:
             raise ComsesHTTPError(
                 f"HEAD download failed: HTTP {resp.status_code}",
@@ -239,15 +260,18 @@ class ComsesClient:
         dest: Path,
         *,
         max_bytes: int,
+        url: str | None = None,
     ) -> StreamResult:
         """Stream the archive to `dest`, aborting if it exceeds `max_bytes`.
 
         Returns a `StreamResult`. Raises `ComsesHTTPError` if the response is
         non-zip, non-2xx, or the stream exceeds the cap. On abort, the partial
-        file is deleted.
+        file is deleted. Pass `url` to override the default UUID-based path
+        (real COMSES requires the numeric codebase id in /download/).
         """
         dest.parent.mkdir(parents=True, exist_ok=True)
-        url = self._download_url(identifier, version)
+        if url is None:
+            url = self._download_url(identifier, version)
 
         # Streaming uses the underlying client directly. We still apply the
         # retry policy for the initial response; an interrupted in-flight
@@ -632,22 +656,22 @@ async def download_release(
             license_name=None,
         )
 
-    # Fetch release metadata for title/license + to verify a downloadable package.
+    # Fetch release + codebase metadata for title/license + the correct
+    # download URL. `submittedPackage` is NOT a reliable signal — real COMSES
+    # returns null for it on most releases even when /download/ serves a real
+    # zip. And the /download/ endpoint 404s on UUID paths; it requires the
+    # numeric codebase id from the release's `absoluteUrl`. Rely on the
+    # release response for both.
     title: str | None = None
     license_name: str | None = None
+    download_url: str | None = None
     try:
         rel = await client.get_release(identifier, resolved)
-        if not rel.get("submittedPackage"):
-            raise ComsesHTTPError(
-                f"Release {resolved} has no downloadable package "
-                f"(submittedPackage is null). The authors may not have "
-                f"uploaded an archive."
-            )
         license_name = (rel.get("license") or {}).get("name")
-    except ComsesHTTPError:
-        raise
+        abs_url = rel.get("absoluteUrl")
+        if isinstance(abs_url, str) and abs_url.startswith("/"):
+            download_url = f"{client._base_url}{abs_url.rstrip('/')}/download/"
     except ComsesError:
-        # Tolerate metadata fetch failure if we can still attempt the download.
         pass
     try:
         cb = await client.get_codebase(identifier)
@@ -657,7 +681,9 @@ async def download_release(
 
     # HEAD screen: refuse obvious oversize before streaming.
     try:
-        content_length, _ = await client.head_download(identifier, resolved)
+        content_length, _ = await client.head_download(
+            identifier, resolved, url=download_url
+        )
     except ComsesHTTPError:
         content_length = None  # HEAD may not be supported; defer to stream cap.
     if content_length is not None and content_length > max_bytes:
@@ -671,7 +697,9 @@ async def download_release(
     tmp_root.mkdir(parents=True, exist_ok=True)
     tmp_zip = tmp_root / f"{identifier}-{resolved}-{os.getpid()}.zip"
     try:
-        await client.stream_download(identifier, resolved, tmp_zip, max_bytes=max_bytes)
+        await client.stream_download(
+            identifier, resolved, tmp_zip, max_bytes=max_bytes, url=download_url
+        )
         safe_extract_zip(
             tmp_zip,
             final_dir,

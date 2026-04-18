@@ -629,27 +629,40 @@ async def test_download_release_refuses_non_zip_response(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_download_release_refuses_release_without_submitted_package(tmp_path):
-    """Release metadata with submittedPackage: null must fail early."""
+async def test_download_release_tolerates_null_submitted_package(tmp_path):
+    """Real COMSES returns submittedPackage: null even when /download/ works.
+
+    The authoritative gate is HEAD + stream content-type, not this field.
+    """
     identifier = "abc"
     empty_release = dict(_fx("release_detail.json"))
     empty_release["submittedPackage"] = None
+    archive_bytes = _make_zip({"code/ok.nlogo": b"to setup\nend\n"})
 
     def handler(request: httpx.Request) -> httpx.Response:
         p = request.url.path
+        if request.method == "HEAD":
+            return httpx.Response(200, headers={"Content-Type": "application/zip"})
+        if "/download/" in p:
+            return httpx.Response(
+                200,
+                content=archive_bytes,
+                headers={"Content-Type": "application/zip"},
+            )
         if "/releases/" in p:
             return httpx.Response(200, json=empty_release)
         return httpx.Response(200, json=_fx("codebase_detail.json"))
 
     async with _make_client(handler) as client:
-        with pytest.raises(comses.ComsesHTTPError, match="submittedPackage"):
-            await comses.download_release(
-                client,
-                identifier,
-                "1.2.0",
-                cache_root=tmp_path / "cache",
-                max_bytes=10_000_000,
-            )
+        outcome = await comses.download_release(
+            client,
+            identifier,
+            "1.2.0",
+            cache_root=tmp_path / "cache",
+            max_bytes=10_000_000,
+        )
+    assert outcome.cached is False
+    assert outcome.selected_netlogo_file is not None
 
 
 @pytest.mark.asyncio
