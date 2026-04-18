@@ -349,8 +349,12 @@ different variants of a model, or the authors shipped both a v1 and v2).
 1. If exactly one `.nlogo` or `.nlogox` file exists, use it.
 2. Otherwise, prefer files under `code/` over any other directory.
 3. Within that, prefer `.nlogox` over `.nlogo` (newer format).
-4. Within that, pick the lexicographically largest filename (typically the
-   latest numbered version, e.g. `WolfSheep_3.0.nlogo` over `WolfSheep_2.0.nlogo`).
+4. Within that, pick the lexicographically largest **relative path** as a
+   pure tie-breaker. This is *not* a semver sort — `v10` lex-orders before
+   `v2`, and `1.10` before `1.9`. The rule exists only to make the choice
+   reproducible across runs; it does not claim to pick the "newest" file.
+   When multiple candidates exist, the AI should surface them to the user
+   rather than trusting the tie-breaker as a version-aware pick.
 5. The response includes `all_netlogo_files` listing every candidate and
    `loaded_netlogo_file` saying which one we picked, so the AI can offer
    the user a chance to switch.
@@ -362,7 +366,7 @@ The non-NetLogo response shape:
   "status": "not_runnable_in_netlogo",
   "language": "Python (Mesa)",
   "title": "SIR Epidemic Model",
-  "extracted_path": "models/comses/{uuid}/{version}/",
+  "extracted_path": "models/comses/{uuid}/{resolved_version}/",
   "code_files": ["code/model.py", "code/agents.py"],
   "odd_doc": "docs/ODD.md",
   "message": "This model is in Python, not NetLogo. The source is saved locally. You can read it with the read_comses_files tool if you want to understand or adapt it. Translating it to NetLogo is possible but not automatic — ask explicitly if that's what you want."
@@ -434,14 +438,31 @@ boundary (prefer line end), `returned_size < full_size`, and `truncated: true`.
 Files not even started are listed in `omitted_files` with reason
 `"byte_cap_reached"`.
 
-This contract is strict enough that an AI reading the result knows:
-- exactly which files it saw
-- exactly which files it did not see, and why
-- for any file it saw, whether it saw all of it
+#### Zero-match case
 
-Without this, an AI could read a truncated `.nlogo` file, miss the
-`to setup` definition at the bottom, and conclude the model has no setup
-procedure. The contract prevents that class of error.
+If no files in the cache match `extensions`, return:
+
+```json
+{
+  "resolved_version": "1.2.0",
+  "files": {},
+  "omitted_files": ["..."],
+  "omitted_reason_by_file": {"...": "extension_not_in_filter"},
+  "total_returned_bytes": 0,
+  "any_truncated": false
+}
+```
+
+The AI sees an empty `files` map plus the full `omitted_files` list and can
+either widen `extensions` or report back to the user.
+
+#### Text decoding policy
+
+All file contents are decoded as **UTF-8 with `errors="replace"`**. This keeps
+the contract simple: every included file returns a string. Binary or
+mis-encoded content shows up as content with replacement characters, which is
+strictly more useful than failing the whole call. Files matching `extensions`
+are never silently dropped for decode reasons.
 
 Why it's in v1 (not deferred): Claude Desktop has no filesystem tools, and
 the existing `model_source` resource only handles flat filenames — not the
@@ -470,11 +491,14 @@ The prompt instructs the AI to:
 2. Show the user the top match with title, authors, description, **citation text**.
 3. Call `open_comses_model`.
 4. If the model is NetLogo (happy path):
-   a. Call `read_comses_files` to get the `.nlogo` source content.
-   b. Scan the source for `to <name>` procedure names and `to-report <name>` reporters.
-   c. **Fallback if nothing useful is found:** if no procedure with a name resembling `setup` / `initialize` / `start` exists, OR no reporters that aren't trivial one-liners are found, **stop after loading.** Do not force-run commands the model doesn't define. Report the discovered procedures/reporters (if any) and ask the user which to run.
+   a. Call `read_comses_files` with `extensions=[".nlogo", ".nlogox"]` to
+      get the source content of whichever variant was loaded. Always include
+      both extensions — Section 4.4 may have selected an `.nlogox` file.
+   b. Scan the source for `to <name>` procedure names and `to-report <name>` reporters (treat the latter as candidates for plausible state metrics; the AI cannot reliably classify utility reporters every time, and that's accepted for v1).
+   c. **Fallback if nothing useful is found:** if no procedure with a name resembling `setup` / `initialize` / `start` exists, OR no candidate reporters are found, **stop after loading.** Do not force-run commands the model doesn't define. Report the discovered procedures/reporters (if any) and ask the user which to run.
    d. If a plausible setup + reporter set exists, run them: one `command(<setup>)` call, then a short `run_simulation` with the discovered reporters, then `export_view`.
-   e. Summarize results, referencing the ODD doc content obtained via `read_comses_files`.
+   e. **Runtime-error stop rule:** if the discovered setup `command(...)` call returns an error (model expected parameters, input files, a different invocation order, etc.), **stop and ask the user.** Do not guess alternate setup names or retry with different arguments. Report the error and the discovered procedure list verbatim.
+   f. Summarize results, referencing the ODD doc content obtained via `read_comses_files`.
 5. If not NetLogo:
    a. The `open_comses_model` call already downloaded and extracted the archive.
    b. Call `read_comses_files` to get the ODD doc and a summary of what the model does.
@@ -507,6 +531,12 @@ Algorithm:
    the cache directory name, the marker check, the download URL, and the
    returned result.
 3. Never write a directory named `latest/` under `models/comses/{uuid}/`.
+
+**Snapshot semantics:** the resolution happens once per call. If the author
+publishes a newer version mid-download, the in-flight operation stays pinned
+to whatever version was resolved at step 1; the next caller asking for
+`"latest"` will resolve again and may get the newer version. This is the
+intended behavior — `"latest"` means "latest at call time," not "track HEAD."
 
 The JSON returned to the AI includes the resolved `version` so the caller
 sees exactly what was used.
@@ -660,9 +690,9 @@ Server (happy path, NetLogo model):
 2. AI picks a top peer-reviewed NetLogo match.
 3. `get_comses_model(uuid)` → AI presents title, authors, **citation text**, license.
 4. `open_comses_model(uuid)` → resolves `"latest"` to concrete version, downloads safely (or uses cache), extracts, picks the right `.nlogo` file per Section 4.4 rules, loads it into NetLogo.
-5. `read_comses_files(uuid, extensions=[".nlogo"])` → AI reads the actual source to **discover** real procedure names and reporters. **The AI does not fabricate commands.**
+5. `read_comses_files(uuid, extensions=[".nlogo", ".nlogox"])` → AI reads the actual source (whichever variant was loaded per Section 4.4) to **discover** real procedure names and reporters. **The AI does not fabricate commands.**
 6. **Branch based on discovery:**
-   - **Plausible setup + useful reporters found:** `command("<discovered setup>")` → `run_simulation(<N ticks>, [<discovered reporters>])` → `export_view()`.
+   - **Plausible setup + useful reporters found:** `command("<discovered setup>")`. If that call returns an error, **stop and ask the user** — do not guess alternates. Otherwise → `run_simulation(<N ticks>, [<discovered reporters>])` → `export_view()`.
    - **No plausible setup OR no useful reporters found:** stop after loading. Report to the user what was found (maybe just `setup` with no reporters, or an unusual procedure name). Ask which procedure to run or whether they want to inspect the source first.
 7. `read_comses_files(uuid, extensions=[".md", ".txt"], max_total_bytes=50000)` → AI reads the ODD doc and summarizes what the model demonstrates.
 
@@ -715,12 +745,11 @@ This is a deliberate design choice: **correct and narrow > broad and shaky.**
 
 ## 10. After Shipping
 
-1. Push to main; notify Serge on WhatsApp with:
-   - Link to the commit / release.
-   - A 30-second screen capture showing the full flow.
-2. Ask Jiaan separately if he wants to try it first-hand.
-3. Update Obsidian `External Validation and Collaboration.md` with the delivery timeline.
-4. Plan next ask: **add a "research workflow" tool** — log parameters, save batches, export reproducible experiment bundles — which directly maps to their paper's "automating policy workflows" section.
+Once v1 lands, the natural next ask is a **"research workflow" tool** — log
+parameters, save batches, export reproducible experiment bundles — which maps
+directly to the "automating policy workflows" section of the COMSES team's
+own paper. That work is out of scope for v1 but listed here as the obvious
+follow-up direction.
 
 ---
 
