@@ -478,8 +478,12 @@ def _compact_search_result(entry: dict) -> dict:
         if name:
             authors.append(name)
 
-    # Language comes from the latest release's releaseLanguages, if present.
+    # Language: search results don't include releaseLanguages, so we fall back
+    # to a text heuristic over title + description + tags. This is surfaced as
+    # a hint only — the authoritative language lives on get_comses_model.
     language = _language_from_releases(entry.get("releases") or [])
+    if not language:
+        language = _language_hint_from_text(entry)
 
     return {
         "identifier": entry.get("identifier"),
@@ -501,10 +505,16 @@ def _compact_search_result(entry: dict) -> dict:
 
 
 def _language_from_releases(releases: list) -> str | None:
-    """Pick a language name from the release with the latest version, if any."""
+    """Pick a language name from a release detail, if the field is populated.
+
+    Real COMSES search results do NOT include `releaseLanguages` on nested
+    releases — that data is only on `/releases/{version}/?format=json`.
+    This helper still handles the full shape for detail responses and
+    mocked tests; callers that only have search results should also try
+    `_language_hint_from_text`.
+    """
     if not releases:
         return None
-    # Prefer the release flagged as latest, else the last one.
     target = None
     for rel in releases:
         if (rel or {}).get("latestVersion"):
@@ -518,11 +528,41 @@ def _language_from_releases(releases: list) -> str | None:
         name = pl.get("name") or (lang or {}).get("name")
         if name:
             return str(name)
-    # Fallback: programmingLanguageTags[] or platforms[]
     tags = (target or {}).get("programmingLanguageTags") or []
     if tags:
         first = tags[0]
         return first.get("name") if isinstance(first, dict) else str(first)
+    return None
+
+
+# Keyword → display name, scanned case-insensitively against title /
+# description / tags. Keep multi-word and ambiguous keywords out of this
+# list so we don't mis-tag ecology models as "R".
+_LANGUAGE_TEXT_HINTS: tuple[tuple[str, str], ...] = (
+    ("netlogo", "NetLogo"),
+    ("mesa", "Python"),
+    ("repast", "Repast"),
+    ("python", "Python"),
+    ("julia", "Julia"),
+    ("matlab", "MATLAB"),
+    ("gama platform", "GAMA"),
+    ("gama-platform", "GAMA"),
+)
+
+
+def _language_hint_from_text(entry: dict) -> str | None:
+    """Cheap heuristic: scan title + description + tags for a known language."""
+    parts: list[str] = [
+        str(entry.get("title") or ""),
+        str(entry.get("summarizedDescription") or ""),
+        str(entry.get("description") or ""),
+    ]
+    for t in entry.get("tags") or []:
+        parts.append(str(t.get("name") if isinstance(t, dict) else t))
+    haystack = " ".join(parts).lower()
+    for needle, label in _LANGUAGE_TEXT_HINTS:
+        if needle in haystack:
+            return label
     return None
 
 
@@ -890,7 +930,7 @@ async def read_comses_files(
     identifier: str,
     version: str = "latest",
     extensions: list[str] | None = None,
-    max_total_bytes: int = 200_000,
+    max_total_bytes: int = 50_000,
 ) -> str:
     """Return text contents of source and documentation files from a
     downloaded COMSES model.
@@ -912,10 +952,11 @@ async def read_comses_files(
       a string (may contain replacement characters for non-text bytes).
     - Files are included in priority order: ODD docs → NetLogo source →
       other code → other .md/.txt → everything else matching extensions.
-    - Total body is capped at `max_total_bytes` (default 200 KB). When the
-      cap is hit mid-file, that file is truncated at a line boundary;
-      subsequent files are listed in `omitted_files` with reason
-      `byte_cap_reached`.
+    - Total body is capped at `max_total_bytes` (default 50 KB — sized to
+      fit in a single conversational-LLM tool response). When the cap is
+      hit mid-file, that file is truncated at a line boundary; subsequent
+      files are listed in `omitted_files` with reason `byte_cap_reached`.
+      For larger pulls, pass a higher value explicitly.
     - Files matching no `extensions` filter are listed in `omitted_files`
       with reason `extension_not_in_filter`.
 

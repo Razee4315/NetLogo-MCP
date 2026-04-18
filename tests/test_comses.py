@@ -1004,3 +1004,48 @@ def test_explore_comses_prompt_has_required_rules():
     # Stop-and-ask fallback and no auto-translation.
     assert "Stop-and-ask" in body or "stop-and-ask" in body.lower()
     assert "Do NOT auto-translate" in body or "not auto-translate" in body.lower()
+
+
+# ── Language hint heuristic (real COMSES search results omit releaseLanguages)
+
+
+def test_language_hint_from_title_and_description():
+    from netlogo_mcp.tools import _language_hint_from_text
+
+    assert _language_hint_from_text({"title": "Wolf Sheep Netlogo Model"}) == "NetLogo"
+    assert (
+        _language_hint_from_text({"description": "Implemented in Python using Mesa."})
+        == "Python"
+    )
+    assert _language_hint_from_text({"tags": [{"name": "Repast"}]}) == "Repast"
+    assert _language_hint_from_text({"title": "ecology of wolves"}) is None
+
+
+@pytest.mark.asyncio
+async def test_search_comses_falls_back_to_heuristic_when_release_langs_absent(
+    monkeypatch,
+):
+    """Real COMSES search results don't include releaseLanguages.
+
+    The compact response must still get a language when the text mentions one.
+    """
+    from netlogo_mcp import tools
+
+    stripped = json.loads(json.dumps(_fx("search_result.json")))
+    # Strip releaseLanguages to simulate real API.
+    for r in stripped["results"]:
+        for rel in r.get("releases") or []:
+            rel["releaseLanguages"] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=stripped)
+
+    _patch_client_factory(monkeypatch, handler)
+
+    ctx = MagicMock()
+    raw = await tools.search_comses(ctx, query="x", page=1)
+    data = json.loads(raw)
+    # "Wolf Sheep Predation" + "NetLogo" tag → picked up via heuristic.
+    assert data["results"][0]["language"] == "NetLogo"
+    # Second result has "Python" in tags + description.
+    assert data["results"][1]["language"] == "Python"
