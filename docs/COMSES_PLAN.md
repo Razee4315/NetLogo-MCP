@@ -8,9 +8,9 @@ Audience: future contributors, Serge/Jiaan (as demo material), my own implementa
 
 ## Ship Philosophy
 
-**Ship v1 in ~4 hours. Expand only when asked.**
+**Ship v1 in ~6 hours of focused work (1–2 evenings). Expand only when asked.**
 
-Serge said trust is earned through delivery. A working v1 in his hands in 5 days > a complete v2 in 2 weeks. This plan is intentionally minimal — the fewer tools, the faster we ship, the sooner we learn from real use.
+Serge said trust is earned through delivery. A correct, narrowly-scoped v1 in his hands is more valuable than an ambitious v2 that leaks bugs. This plan is intentionally minimal and **resists scope creep** — notably, cross-language translation is not a main promise; it is an optional follow-up the user can ask for.
 
 ---
 
@@ -18,12 +18,17 @@ Serge said trust is earned through delivery. A working v1 in his hands in 5 days
 
 Enable NetLogo MCP to:
 1. Search the CoMSES Net Computational Model Library
-2. View model metadata (authors, license, releases, citations)
-3. Download any model from COMSES to the local `models/` folder
-4. Load NetLogo models directly; return structured info for non-NetLogo models so the AI can offer to translate
+2. View model metadata including **citation-ready text** for use in papers
+3. **Safely** download any model from COMSES to the local `models/` folder
+4. Load NetLogo models directly
+5. For non-NetLogo models, clearly identify the language and give the user path + file info for optional manual follow-up
+
+**Pitch in one sentence:** *Search COMSES, inspect citation-ready metadata, download archives safely, and open NetLogo models directly. Non-NetLogo models are identified clearly, with optional manual follow-up.*
 
 This fulfills Serge Stinckwich's direct request on 2026-04-17:
 > "Would be nice if there an agent skills to explore existing ABM on COMSES or github"
+
+**What this is not:** not a translation service, not a GitHub mirror, not a model runner for Python/R/etc. Cross-language translation is *possible* (the AI can be asked), but is explicitly **not** a v1 selling point.
 
 ---
 
@@ -109,6 +114,20 @@ Real file names observed:
 
 ## 3. Issues Discovered During Research (Ordered by Severity)
 
+### High: Zip-slip and poisoned-cache risk in extraction
+
+If we extract third-party ZIP archives directly into `models/comses/{uuid}/{version}/`, a malicious archive with `../` path traversal entries could write files outside the target directory. Worse: a partial download or interrupted extraction followed by "skip if target exists" caching could leave a corrupt directory that future runs trust.
+
+Mitigation — **mandatory in v1**:
+
+1. **Validate every zip member before extraction.** For each `ZipInfo.filename`:
+   - Reject if it contains `..`, starts with `/`, or is an absolute path (Windows drive letters).
+   - After `Path(target_dir, member_name).resolve()`, assert the result is still within `target_dir.resolve()` (use `Path.is_relative_to()`).
+   - Reject any zip with a suspicious member.
+2. **Atomic extract:** download to `temp_file.zip`, extract into `temp_dir/`, and only once extraction succeeds, `shutil.move(temp_dir, final_dir)`. Never extract directly into the cache path.
+3. **Completion marker:** write a `.comses_complete` file inside `final_dir` after successful extraction. On reuse, only trust a cached directory if that marker is present. If not, wipe and redownload.
+4. **Reject gigantic archives at extraction time too:** sum uncompressed sizes from `ZipInfo.file_size`; if total exceeds `2 × max_mb` (to catch zip bombs with high compression ratios), refuse.
+
 ### High: Some "live" models have no downloadable archive
 
 Example: BHSPopDy (UUID `7facda08-dbef-4ceb-b069-17b3cd964cee`, v1.2.0)
@@ -126,10 +145,11 @@ Samples observed:
 - With data: **2 – 25MB**
 - With GIS / large inputs: **70MB** (LogoClim)
 
-Mitigation:
+Mitigation (operational, stream-time enforcement):
 - Default download cap: **50MB** (configurable via env var `COMSES_MAX_DOWNLOAD_MB`).
-- Before downloading, send a `HEAD` request, read `Content-Length`, warn or refuse if above cap.
-- Stream the download to disk (don't buffer in memory).
+- `HEAD` request first as a quick screen — if `Content-Length` is present and exceeds cap, refuse before downloading.
+- **`HEAD` is not authoritative** — some responses omit `Content-Length` or lie about it. The stream must enforce the cap in real time: count bytes as they arrive; if the total exceeds cap mid-stream, abort the connection, delete the partial file.
+- Stream to a temp file on disk (never buffer in memory).
 
 ### Medium: Language tag filter (`programming_languages=19`) returns 0 results
 
@@ -159,13 +179,16 @@ Mitigation:
 - Cache a lightweight result list in-memory for the life of one session (search then view detail shouldn't re-search).
 - Document expected latency in each tool's docstring.
 
-### Low: Cloudflare occasional hiccups
+### Low: Cloudflare / transient network errors
 
 One of three consecutive rapid downloads returned an HTML error page once, then succeeded on retry.
 
-Mitigation:
-- Retry once on non-2xx with a 2s back-off.
-- `httpx` has `AsyncClient` with retries configurable.
+Mitigation (explicit retry policy):
+- Retry only on: HTTP `502`, `503`, `504`, network timeout, `httpx.ConnectError`, `httpx.ReadError`.
+- **Do NOT retry on:** `4xx` (client error — indicates bug or missing data), `200` with unexpected `Content-Type` (indicates we got an interstitial — retrying won't help).
+- Max 2 retries. Exponential backoff: 1s, then 2s.
+- Log every retry attempt with reason.
+- Implemented explicitly in `comses.py` — not delegated to a library default.
 
 ### Low: Truncated UUIDs in some UI contexts
 
@@ -202,7 +225,7 @@ Mitigation:
 
 ## 4. Tool Design (v1)
 
-**Four MCP tools.** All async, use `httpx.AsyncClient`. No filtering that hides results from the user — language info is surfaced per result so AI/user can decide.
+**Five MCP tools, one prompt.** All async, use `httpx.AsyncClient`. No filtering that hides results from the user — language info is surfaced per result so AI/user can decide. File access works on every MCP client (not just those with filesystem tools).
 
 ### 4.1 `search_comses`
 
@@ -253,6 +276,8 @@ async def get_comses_model(ctx: Context, identifier: str) -> str:
 
 ### 4.3 `download_comses_model`
 
+Standalone download tool for callers who explicitly want "fetch but don't open."
+
 ```python
 @mcp.tool()
 async def download_comses_model(
@@ -261,26 +286,30 @@ async def download_comses_model(
     version: str = "latest",
     max_mb: float = 50.0,
 ) -> str:
-    """Download a COMSES model archive to the local models directory.
+    """Safely download and extract a COMSES model archive.
 
     Args:
         identifier: Full model UUID.
         version: Version string (e.g. '1.0.0') or 'latest'.
-        max_mb: Max download size in MB. Fails with clear error if exceeded.
+        max_mb: Max download size in MB. Enforced at stream time, not just HEAD.
 
-    Returns: summary JSON with
-    {saved_path, extracted_files, netlogo_files, odd_doc_path, license, summary}
+    Returns JSON: {
+      extracted_path, language, netlogo_files, code_files, odd_doc,
+      license, version, cached (bool — true if we used an existing cached dir)
+    }
     """
 ```
 
-Implementation details:
-- HEAD request first to check size.
-- Stream download to `models/comses/{uuid}/{version}/` to keep per-model isolation.
-- Extract zip into same directory.
-- Scan for `.nlogo` / `.nlogox` files, list them in response.
-- Scan for ODD docs, include path in response.
+Implementation details (see sections 3 and 4.6 for full requirements):
+- HEAD screen → refuse if `Content-Length` known-exceeds cap.
+- Stream download to `temp_file.zip` under `models/comses/.tmp/`, enforce byte cap mid-stream.
+- Validate every zip member path (reject traversal).
+- Check sum of uncompressed sizes; refuse zip bombs (> `2 × max_mb`).
+- Extract to `temp_dir/`, then `shutil.move(temp_dir, models/comses/{uuid}/{version}/)` atomically.
+- Write `.comses_complete` marker. Future calls check this marker before reusing cache.
+- Detect language from `codemeta.json` (`programmingLanguage` field) or from extension scan fallback.
 
-### 4.4 `open_comses_model` (with graceful fallback for non-NetLogo models)
+### 4.4 `open_comses_model` (cache-aware; main entry point for AI flows)
 
 ```python
 @mcp.tool()
@@ -288,18 +317,29 @@ async def open_comses_model(
     ctx: Context,
     identifier: str,
     version: str = "latest",
+    max_mb: float = 50.0,
 ) -> str:
-    """Download a COMSES model. If it's NetLogo, load it. Otherwise report
-    back so the AI can offer to convert it.
+    """Get a COMSES model ready to use.
 
-    Happy path: returns 'Loaded NetLogo model: <filename>'
-    Fallback: returns structured JSON with language info, code file paths,
-    and a `suggestion` field telling the AI to ask the user whether to
-    convert the source to NetLogo.
+    - If cached locally (marker present), skip download.
+    - Otherwise download + extract (same logic as download_comses_model).
+    - If the model is NetLogo, load it into the NetLogo workspace.
+    - If not NetLogo, do NOT load; return structured info for manual follow-up.
+
+    Args:
+        identifier: Full model UUID.
+        version: Version string or 'latest'.
+        max_mb: Max download size cap.
+
+    Returns:
+      - NetLogo case: "Loaded NetLogo model: <filename> (cached)" or "(downloaded)"
+      - Non-NetLogo case: structured JSON, see below.
     """
 ```
 
-The fallback response shape:
+This is the **single entry point** for "I want this model ready to use." It subsumes downloading. Users who want to download without opening can call `download_comses_model` directly; most AI flows will call this tool.
+
+The non-NetLogo response shape:
 
 ```json
 {
@@ -309,42 +349,79 @@ The fallback response shape:
   "extracted_path": "models/comses/{uuid}/{version}/",
   "code_files": ["code/model.py", "code/agents.py"],
   "odd_doc": "docs/ODD.md",
-  "suggestion": "This is a Python model, not NetLogo. Ask the user if they want me to convert it to NetLogo. If yes, read the files from extracted_path (using your filesystem tools) and use create_model to load the NetLogo translation. Be honest about which parts can and cannot be faithfully translated."
+  "message": "This model is in Python, not NetLogo. The source is saved locally. You can read it with the read_comses_files tool if you want to understand or adapt it. Translating it to NetLogo is possible but not automatic — ask explicitly if that's what you want."
 }
 ```
 
-The `suggestion` field is LLM-readable guidance — it tells Claude / Cursor / etc. what to do next in plain English. Most MCP clients (Claude Code, Cursor, Windsurf, VS Code) have filesystem access, so they can read the code files directly.
+The `message` is deliberately lower-key than the earlier "Ask the user if they want me to convert it" framing. **Translation is not promoted as a feature here.** It's available via a separate user request.
 
-### Single Prompt
+### 4.5 `read_comses_files` (in v1 — enables cross-client file access)
+
+```python
+@mcp.tool()
+async def read_comses_files(
+    ctx: Context,
+    identifier: str,
+    version: str = "latest",
+    extensions: list[str] = [".nlogo", ".nlogox", ".py", ".r", ".R", ".java", ".jl", ".md", ".txt"],
+    max_total_bytes: int = 200_000,
+) -> str:
+    """Return contents of source + documentation files from a downloaded COMSES model.
+
+    Works on every MCP client regardless of filesystem tool availability.
+    Use this to read ODD docs, or to read source code when translating or
+    explaining a non-NetLogo model.
+
+    Args:
+        identifier: Full model UUID (must have been downloaded first).
+        version: Version string or 'latest'.
+        extensions: File types to include. Default covers code + docs.
+        max_total_bytes: Cap total returned content (default 200KB).
+
+    Returns JSON: {files: {relative_path: content}, total_bytes, truncated}
+    """
+```
+
+Why it's in v1: the earlier plan deferred this to v2 on the assumption that every MCP client has filesystem tools. The reviewer caught that as wrong — Claude Desktop (a major target) does not, and even in Claude Code the extracted files live deep under `models/comses/{uuid}/{version}/docs/` which may not match our existing `model_source` resource's filename-based lookup. `read_comses_files` guarantees the AI can read ODD summaries and source code regardless of client.
+
+### Single Prompt: `explore_comses` (NetLogo-first)
 
 ```python
 @mcp.prompt()
 def explore_comses(topic: str) -> list[Message]:
-    """Full COMSES workflow: search → pick the best model → if NetLogo, load
-    and run; if not, offer to translate to NetLogo. Covers the whole flow
-    in one prompt template.
+    """Search COMSES for a topic, pick the best NetLogo match, download, load,
+    and run a short baseline simulation.
+
+    - Preferentially picks peer-reviewed NetLogo models.
+    - Inspects the model's NetLogo source to find real procedure and reporter
+      names before running (does not assume 'setup' / 'go' exist).
+    - For non-NetLogo matches, reports language + citation + ODD path and
+      stops — does not auto-translate. Translation is available if the user
+      explicitly asks.
     """
 ```
 
 The prompt instructs the AI to:
-1. Search COMSES for models matching the topic
-2. Pick the best match (by peer review status, downloads, recency)
-3. Show the user the model details + citation
-4. If NetLogo: download, load, run a baseline simulation, show results
-5. If not NetLogo: tell the user the language, show the ODD doc summary, ask if they want a translation
-6. On translation: read the source code, write NetLogo equivalent, call `create_model`, verify with a few ticks
-7. Be honest about translation fidelity — name libraries that couldn't be faithfully reproduced
+1. Search COMSES for models matching the topic; prefer peer-reviewed + NetLogo-tagged.
+2. Show the user the top match with title, authors, description, **citation text**.
+3. Call `open_comses_model`. If NetLogo-loaded:
+   a. Read the `.nlogo` source file content to find actual procedure names (commonly `to setup`, `to go`, but may differ).
+   b. Find reporters by scanning for `to-report` definitions.
+   c. Run the discovered setup, then a short `run_simulation` using the discovered reporters.
+   d. Export view, summarize results referencing the ODD doc via `read_comses_files`.
+4. If not NetLogo, state the language clearly, show citation, point to `read_comses_files` for further exploration, and stop.
+5. **Do not auto-translate.** If the user explicitly asks to translate, proceed, but state limitations honestly.
 
-### Honesty Guardrails for Conversion
+### On Translation (Optional Follow-up Only)
 
-When translation happens, the AI is prompted to state:
+Translation is supported but is **not** a headline feature in v1. When a user explicitly asks to translate a non-NetLogo model:
 
-- Which parts of the original it simplified or skipped
-- Any domain libraries (NumPy, networkx, geopandas, ggplot) it couldn't faithfully reproduce
-- Whether outputs should match the original exactly or are approximations
-- That the user should verify against the original paper's expected results
+- Use `read_comses_files` to get the source.
+- Write an equivalent NetLogo model; use `create_model` to load it.
+- Explicitly state what was simplified or skipped (e.g., "NumPy vectorized math replaced with plain NetLogo list ops", "networkx graph replaced with links — may need the `nw` extension for full fidelity").
+- Recommend the user verify against the original paper's expected outputs.
 
-Realistic quality matrix:
+Realistic translation quality matrix (for reference only — not shown in tool output):
 
 | Source | Conversion Quality |
 |--------|-------------------|
@@ -355,22 +432,39 @@ Realistic quality matrix:
 | Complex networks (networkx) | Possible with NetLogo `nw` extension |
 | GIS-heavy (geopandas, rasters) | Hard (needs NetLogo GIS extension) |
 
+### 4.6 Cache semantics (shared by download and open)
+
+A cached `models/comses/{uuid}/{version}/` directory is trusted **only** when its `.comses_complete` marker is present.
+
+| Scenario | Behavior |
+|----------|----------|
+| Directory absent | Download, extract, mark complete. |
+| Directory present, marker present | Reuse cache. |
+| Directory present, marker absent | Wipe directory, redownload. |
+| Download fails mid-stream | Temp files cleaned up; cache dir never created. |
+| Extraction fails mid-way | Temp extracted dir cleaned up; cache dir never created. |
+
 ---
 
 ## 5. File Layout & New Code
 
 ```
 src/netlogo_mcp/
-├── comses.py            # NEW: low-level COMSES API client (httpx-based)
-├── tools.py             # + 4 new tools that delegate to comses.py
+├── comses.py            # NEW: low-level COMSES API client + safe extract helpers
+├── tools.py             # + 5 new tools that delegate to comses.py
 ├── prompts.py           # + 1 new prompt (explore_comses)
 └── config.py            # + COMSES_MAX_DOWNLOAD_MB env var
 tests/
-├── test_comses.py       # NEW: mocked HTTP tests
-└── conftest.py          # + fixtures for mocked COMSES responses
+├── test_comses.py       # NEW: mocked HTTP + zip safety tests
+└── fixtures/comses/     # NEW: captured JSON responses + test zip archives
+    ├── search_result.json
+    ├── codebase_detail.json
+    ├── release_detail.json
+    ├── good_archive.zip
+    └── malicious_traversal.zip  # for zip-slip test
 ```
 
-No new resources or extra files. Minimal surface area.
+No new resources. Minimal surface area. The `read_comses_files` MCP tool covers what an ODD resource would have.
 
 ### `comses.py` module
 
@@ -402,21 +496,47 @@ Everything else is stdlib (`zipfile`, `pathlib`, `json`).
 
 ```python
 # test_comses.py
+
+# API client
 def test_search_builds_correct_url(): ...
 def test_search_parses_paginated_response(): ...
 def test_get_codebase_returns_title_and_releases(): ...
 def test_get_comses_model_includes_citation_text(): ...
-def test_head_download_returns_size_and_content_type(): ...
-def test_stream_download_rejects_non_zip(): ...
-def test_stream_download_rejects_oversize(): ...
+
+# Download path — size enforcement
+def test_head_refuses_when_content_length_exceeds_cap(): ...
+def test_stream_aborts_mid_download_on_size_overrun(): ...
+def test_stream_download_rejects_non_zip_content_type(): ...
+
+# Download path — retry policy
+def test_retries_on_502_503_504(): ...
+def test_does_not_retry_on_4xx(): ...
+def test_gives_up_after_max_retries(): ...
+
+# Extraction — zip safety (critical)
+def test_rejects_zip_with_path_traversal(): ...     # ../etc/passwd member
+def test_rejects_zip_with_absolute_path_member(): ...
+def test_rejects_zip_bomb_by_uncompressed_sum(): ...
+def test_atomic_move_on_success(): ...              # temp dir → final dir
+def test_cleans_up_temp_on_extract_failure(): ...
+def test_completion_marker_written_on_success(): ...
+
+# Cache behavior
+def test_reuses_cached_dir_when_marker_present(): ...
+def test_redownloads_when_marker_absent(): ...
+
+# Tool-level integration
 def test_extract_finds_nlogo_files(): ...
 def test_extract_detects_language_from_codemeta(): ...
+def test_open_comses_model_loads_netlogo(): ...
 def test_open_comses_model_returns_fallback_for_non_netlogo(): ...
+def test_read_comses_files_respects_byte_cap(): ...
+def test_read_comses_files_truncates_and_sets_flag(): ...
 ```
 
-Use `httpx.MockTransport` to fake the COMSES API in tests. Fixture: real captured JSON responses saved to `tests/fixtures/comses/`.
+Use `httpx.MockTransport` to fake the COMSES API in tests. Fixtures: real captured JSON responses + two test zip archives (one good, one crafted with a traversal path) saved under `tests/fixtures/comses/`.
 
-Target: ~10 new tests, keep overall suite under 10 seconds.
+Target: ~20 new tests. Zip-safety tests are non-optional. Overall suite still under 10 seconds.
 
 ---
 
@@ -433,49 +553,61 @@ Target: ~10 new tests, keep overall suite under 10 seconds.
 ## 8. User Flow (End-to-End Demo)
 
 User (in Claude Code):
-> "Find me an agent-based model for rumor spreading on COMSES and run it for 200 ticks."
+> "Find me an agent-based model for rumor spreading on COMSES and run a short baseline."
 
-Server:
-1. `search_comses("rumor spreading")` → 12 matches
-2. AI picks top by `downloadCount + peerReviewed`
-3. `get_comses_model(uuid)` → shows authors, ODD summary, license
-4. `download_comses_model(uuid)` → 180KB zip, extracted to `models/comses/.../1.0.0/`
-5. `open_comses_model(uuid)` → NetLogo loads `code/RumorSpread.nlogo`
-6. `command("setup")` → model initialized
-7. `run_simulation(200, ["count spreaders", "count informed"])` → markdown table
-8. `export_view()` → final PNG
-9. AI explains results referencing the model's ODD doc
+Server (happy path, NetLogo model):
+1. `search_comses("rumor spreading")` → N matches.
+2. AI picks a top peer-reviewed NetLogo match.
+3. `get_comses_model(uuid)` → AI presents title, authors, **citation text**, license.
+4. `open_comses_model(uuid)` → downloads safely (or uses cache), extracts, loads `code/RumorSpread.nlogo`.
+5. `read_comses_files(uuid, extensions=[".nlogo"])` → AI reads the actual source to **discover** the model's real procedure names (is it `setup` or `initialize`?) and its reporters (what does this model actually expose?). **The AI does not fabricate commands.**
+6. `command("<discovered setup>")` → model initialized.
+7. `run_simulation(<N ticks>, [<discovered reporters>])` → real data from this model, not invented metrics.
+8. `export_view()` → PNG.
+9. `read_comses_files(uuid, extensions=[".md", ".txt"], max_total_bytes=50000)` → AI reads the ODD doc and summarizes what the model demonstrates.
 
-Total time in warm session: **~15–25 seconds**.
+Non-NetLogo model flow:
+1. `search_comses` → top match is Python.
+2. AI presents language, authors, citation, and summary of ODD via `read_comses_files`.
+3. AI tells user: "This model is in Python. The source is downloaded. I can explain the code or, if you explicitly want, translate it to NetLogo — but the translation will be approximate."
+4. Flow stops unless user asks to translate.
 
----
-
-## 9. Implementation Order (3 Chunks, v1)
-
-1. **Chunk 1 (~1.5 hours):** `comses.py` with `search`, `get_codebase`, `get_release` methods. Mocked unit tests. `search_comses` + `get_comses_model` MCP tools.
-2. **Chunk 2 (~1.5 hours):** `stream_download` helper with size guard + non-zip rejection. `download_comses_model` tool. Zip extraction, language detection from `codemeta.json`, NetLogo file scan. Tests.
-3. **Chunk 3 (~1 hour):** `open_comses_model` tool with graceful fallback. `explore_comses` prompt. README + CHANGELOG + Obsidian updates.
-
-Total focused time: **~4 hours**. One focused evening.
+Total time in warm session for happy path: realistically **30–60 seconds**, dominated by the download and the HTTP round-trips to COMSES.
 
 ---
 
-## 9.5. What's Explicitly NOT in v1 (Deferred to v2)
+## 9. Implementation Order (4 Chunks, v1)
 
-These are documented here to show they were considered but intentionally skipped:
+Estimates are for focused work, assuming no surprise blockers.
+
+1. **Chunk 1 (~1.5 hours):** `comses.py` with `search`, `get_codebase`, `get_release` methods and the **retry policy** (specific codes + backoff). Mocked unit tests for API client + retry. `search_comses` + `get_comses_model` MCP tools.
+
+2. **Chunk 2 (~2 hours):** Safe download + extract pipeline. `stream_download` with mid-stream byte enforcement + non-zip content-type rejection. Safe zip extraction with path validation and zip-bomb guard. Atomic temp→final rename. `.comses_complete` marker. `download_comses_model` tool. ~6 tests covering these paths including the malicious-zip fixture.
+
+3. **Chunk 3 (~1.5 hours):** `open_comses_model` cache-aware tool with language-detection fallback. `read_comses_files` tool with byte cap + truncation flag. Tests for both.
+
+4. **Chunk 4 (~1 hour):** `explore_comses` prompt (NetLogo-first, source-introspection, no fabricated commands). README + CHANGELOG + Obsidian updates. Live manual test against real COMSES with one NetLogo model and one non-NetLogo model.
+
+Total focused time: **~6 hours**. Realistic spread: 1–2 evenings. This is an **honest estimate** — the earlier "4 hours" underestimated zip safety, retry logic, and cross-client file access, all of which are now first-class work.
+
+---
+
+## 9.5. What's Explicitly NOT in v1 (Deferred)
+
+These items were considered and intentionally skipped. Each has a reason.
 
 | Deferred item | Why not now |
 |---------------|-------------|
-| `read_comses_files` tool | Most MCP clients (Claude Code, Cursor, Windsurf, VS Code, Codex) have their own filesystem read tools. Only needed for Claude Desktop if a user there wants translation. Add if requested. |
-| `netlogo://comses/{uuid}/odd` resource | After extraction, ODD docs are just files on disk. AI can read them directly. URI resource adds ceremony without meaningful benefit. |
-| Separate `convert_comses_to_netlogo` prompt | Covered by the broader `explore_comses` prompt. One prompt is simpler than two overlapping ones. |
-| GitHub model fetching | Serge mentioned it, but COMSES first gives him 90% of what he asked for. Different API, different archive format, different auth for rate limits. Scope for v2. |
-| Cleanup of old downloads | Not urgent. If `models/comses/` gets large, users can delete it manually or we add a tool later. |
-| Download caching / dedup across sessions | Reruns of `download_comses_model` check if target dir already exists, skip re-download. Simple early optimization, not worth more. |
-| Parsing `codemeta.json` into a structured resource | Nice-to-have. Current approach: we read it at download-time to detect language, but don't expose it as its own MCP object. |
+| `netlogo://comses/{uuid}/odd` resource | `read_comses_files` covers the same need without URI-scheme ceremony. If we later want fine-grained per-doc URIs, we can add them. |
+| Separate `convert_comses_to_netlogo` prompt | Translation is a *possible* user request, not a v1 promise. A dedicated prompt would over-market it. |
+| GitHub model fetching | Serge mentioned it, but COMSES alone gives him 90% of what he asked for. Different API, different archive format, different auth for rate limits. Scope for v2 if asked. |
+| Automatic cleanup of old downloads | Manual cleanup is fine for early users. A `cleanup_comses_downloads` tool can be added if `models/comses/` disk usage becomes a complaint. |
+| Parsing `codemeta.json` into a structured MCP object | We *read* it at download-time for language detection, but don't expose it as its own resource. Pure nice-to-have. |
 | `netlogo_only` search filter | Explicitly removed — we trust AI and user to interpret language info per result. Hiding non-NetLogo would hide ~80% of the library. |
+| Uploading / publishing models back to COMSES | Write API requires auth and is out of scope. Read-only forever. |
+| Parallel downloads | One at a time is fine for interactive use. Complicates retry and rate-limit story for no real win. |
 
-This is a deliberate design choice: **ship something Serge can use in a week, not something "complete" in a month.**
+This is a deliberate design choice: **correct and narrow > broad and shaky.**
 
 ---
 
