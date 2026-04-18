@@ -97,7 +97,9 @@ class ComsesClient:
         self._client = client or httpx.AsyncClient(
             timeout=DEFAULT_TIMEOUT,
             follow_redirects=True,
-            headers={"User-Agent": "NetLogo-MCP/0.1 (+https://github.com/Razee4315/NetLogo-MCP)"},
+            headers={
+                "User-Agent": "NetLogo-MCP/0.1 (+https://github.com/Razee4315/NetLogo-MCP)"
+            },
         )
 
     async def aclose(self) -> None:
@@ -220,7 +222,8 @@ class ComsesClient:
         )
         if resp.status_code >= 400:
             raise ComsesHTTPError(
-                f"HEAD download failed: HTTP {resp.status_code}", status=resp.status_code
+                f"HEAD download failed: HTTP {resp.status_code}",
+                status=resp.status_code,
             )
         cl = resp.headers.get("Content-Length")
         try:
@@ -315,16 +318,15 @@ class ComsesClient:
 
 def _json_or_raise(resp: httpx.Response, op: str) -> dict:
     if resp.status_code >= 400:
-        raise ComsesHTTPError(
-            f"{op}: HTTP {resp.status_code}", status=resp.status_code
-        )
+        raise ComsesHTTPError(f"{op}: HTTP {resp.status_code}", status=resp.status_code)
     ct = resp.headers.get("Content-Type", "")
     if "json" not in ct.lower():
         raise ComsesHTTPError(f"{op}: expected JSON, got Content-Type={ct!r}")
     try:
-        return resp.json()
+        data: dict = resp.json()
     except json.JSONDecodeError as exc:
         raise ComsesHTTPError(f"{op}: response was not valid JSON: {exc}") from exc
+    return data
 
 
 # ── Zip safety + atomic extract ───────────────────────────────────────────────
@@ -368,9 +370,7 @@ def validate_zip_members(zf: zipfile.ZipFile, target_root: Path) -> None:
     """Raise `ComsesSafetyError` if any member would escape `target_root`."""
     for info in zf.infolist():
         if not _member_is_safe(target_root, info.filename):
-            raise ComsesSafetyError(
-                f"Unsafe zip member rejected: {info.filename!r}"
-            )
+            raise ComsesSafetyError(f"Unsafe zip member rejected: {info.filename!r}")
 
 
 def check_zip_bomb(zf: zipfile.ZipFile, max_bytes: int) -> int:
@@ -500,8 +500,10 @@ def detect_language(extracted_dir: Path) -> str:
                 first = lang[0]
                 if isinstance(first, str):
                     return first
-                if isinstance(first, dict) and isinstance(first.get("name"), str):
-                    return first["name"]
+                if isinstance(first, dict):
+                    first_name = first.get("name")
+                    if isinstance(first_name, str):
+                        return first_name
 
     # Fallback: whichever recognized extension appears most under code/ or root.
     counts: dict[str, int] = {}
@@ -544,7 +546,9 @@ def select_netlogo_file(netlogo_files: list[Path], extracted_dir: Path) -> Path 
         return p.relative_to(extracted_dir).parts
 
     # Step 2: prefer under code/.
-    under_code = [p for p in netlogo_files if rel_parts(p) and rel_parts(p)[0] == "code"]
+    under_code = [
+        p for p in netlogo_files if rel_parts(p) and rel_parts(p)[0] == "code"
+    ]
     candidates = under_code if under_code else netlogo_files
 
     # Step 3: prefer .nlogox.
@@ -667,9 +671,7 @@ async def download_release(
     tmp_root.mkdir(parents=True, exist_ok=True)
     tmp_zip = tmp_root / f"{identifier}-{resolved}-{os.getpid()}.zip"
     try:
-        await client.stream_download(
-            identifier, resolved, tmp_zip, max_bytes=max_bytes
-        )
+        await client.stream_download(identifier, resolved, tmp_zip, max_bytes=max_bytes)
         safe_extract_zip(
             tmp_zip,
             final_dir,

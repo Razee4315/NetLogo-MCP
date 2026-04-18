@@ -178,7 +178,9 @@ async def test_retries_on_network_error(monkeypatch):
 async def test_non_json_content_type_is_error():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
-            200, content=b"<html>interstitial</html>", headers={"Content-Type": "text/html"}
+            200,
+            content=b"<html>interstitial</html>",
+            headers={"Content-Type": "text/html"},
         )
 
     async with _make_client(handler) as client:
@@ -556,7 +558,9 @@ async def test_download_release_resolves_latest_and_extracts(tmp_path):
     assert outcome.license_name == "MIT"
     assert outcome.title == "Wolf Sheep Predation"
     # Second call is a cache hit.
-    async with _make_client(lambda r: httpx.Response(200, json=_fx("codebase_detail.json"))) as client:
+    async with _make_client(
+        lambda r: httpx.Response(200, json=_fx("codebase_detail.json"))
+    ) as client:
         again = await comses.download_release(
             client, identifier, "1.2.0", cache_root=cache_root, max_bytes=10_000_000
         )
@@ -700,7 +704,9 @@ async def test_download_comses_model_tool_returns_expected_shape(monkeypatch, tm
 # ── open_comses_model tool ───────────────────────────────────────────────────
 
 
-def _prime_cache(cache_root: Path, identifier: str, version: str, files: dict[str, bytes]) -> Path:
+def _prime_cache(
+    cache_root: Path, identifier: str, version: str, files: dict[str, bytes]
+) -> Path:
     """Write a fully-marked cache directory so read/open tools can skip download."""
     final = cache_root / identifier / version
     final.mkdir(parents=True, exist_ok=True)
@@ -713,7 +719,9 @@ def _prime_cache(cache_root: Path, identifier: str, version: str, files: dict[st
 
 
 @pytest.mark.asyncio
-async def test_open_comses_model_loads_netlogo_when_cached(monkeypatch, tmp_path, mock_context, mock_nl):
+async def test_open_comses_model_loads_netlogo_when_cached(
+    monkeypatch, tmp_path, mock_context, mock_nl
+):
     from netlogo_mcp import tools
 
     identifier = "abc"
@@ -731,13 +739,16 @@ async def test_open_comses_model_loads_netlogo_when_cached(monkeypatch, tmp_path
     )
 
     monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: cache_root)
+
     # No HTTP should happen at all on a warm cache + concrete version.
     def handler(request: httpx.Request) -> httpx.Response:
         raise AssertionError(f"Unexpected request: {request.url}")
 
     _patch_client_factory(monkeypatch, handler)
 
-    raw = await tools.open_comses_model(mock_context, identifier=identifier, version=version)
+    raw = await tools.open_comses_model(
+        mock_context, identifier=identifier, version=version
+    )
     data = json.loads(raw)
 
     assert data["status"] == "loaded_netlogo"
@@ -749,7 +760,9 @@ async def test_open_comses_model_loads_netlogo_when_cached(monkeypatch, tmp_path
 
 
 @pytest.mark.asyncio
-async def test_open_comses_model_non_netlogo_returns_structured_json(monkeypatch, tmp_path, mock_context, mock_nl):
+async def test_open_comses_model_non_netlogo_returns_structured_json(
+    monkeypatch, tmp_path, mock_context, mock_nl
+):
     from netlogo_mcp import tools
 
     identifier = "abc"
@@ -767,9 +780,13 @@ async def test_open_comses_model_non_netlogo_returns_structured_json(monkeypatch
     )
 
     monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: cache_root)
-    _patch_client_factory(monkeypatch, lambda r: (_ for _ in ()).throw(AssertionError("no HTTP expected")))
+    _patch_client_factory(
+        monkeypatch, lambda r: (_ for _ in ()).throw(AssertionError("no HTTP expected"))
+    )
 
-    raw = await tools.open_comses_model(mock_context, identifier=identifier, version=version)
+    raw = await tools.open_comses_model(
+        mock_context, identifier=identifier, version=version
+    )
     data = json.loads(raw)
 
     assert data["status"] == "not_runnable_in_netlogo"
@@ -783,7 +800,9 @@ async def test_open_comses_model_non_netlogo_returns_structured_json(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_read_comses_files_priority_odd_first_then_nlogo(monkeypatch, tmp_path, mock_context):
+async def test_read_comses_files_priority_odd_first_then_nlogo(
+    monkeypatch, tmp_path, mock_context
+):
     from netlogo_mcp import tools
 
     identifier = "abc"
@@ -801,7 +820,9 @@ async def test_read_comses_files_priority_odd_first_then_nlogo(monkeypatch, tmp_
     )
     monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: cache_root)
 
-    raw = await tools.read_comses_files(mock_context, identifier=identifier, version=version)
+    raw = await tools.read_comses_files(
+        mock_context, identifier=identifier, version=version
+    )
     data = json.loads(raw)
 
     assert data["resolved_version"] == version
@@ -812,7 +833,9 @@ async def test_read_comses_files_priority_odd_first_then_nlogo(monkeypatch, tmp_
 
 
 @pytest.mark.asyncio
-async def test_read_comses_files_respects_byte_cap_and_truncates(monkeypatch, tmp_path, mock_context):
+async def test_read_comses_files_respects_byte_cap_and_truncates(
+    monkeypatch, tmp_path, mock_context
+):
     from netlogo_mcp import tools
 
     identifier = "abc"
@@ -844,7 +867,9 @@ async def test_read_comses_files_respects_byte_cap_and_truncates(monkeypatch, tm
 
 
 @pytest.mark.asyncio
-async def test_read_comses_files_omits_files_with_reasons(monkeypatch, tmp_path, mock_context):
+async def test_read_comses_files_omits_files_with_reasons(
+    monkeypatch, tmp_path, mock_context
+):
     from netlogo_mcp import tools
 
     identifier = "abc"
@@ -861,14 +886,18 @@ async def test_read_comses_files_omits_files_with_reasons(monkeypatch, tmp_path,
     )
     monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: cache_root)
 
-    raw = await tools.read_comses_files(mock_context, identifier=identifier, version=version)
+    raw = await tools.read_comses_files(
+        mock_context, identifier=identifier, version=version
+    )
     data = json.loads(raw)
     assert "data/input.csv" in data["omitted_reason_by_file"]
     assert data["omitted_reason_by_file"]["data/input.csv"] == "extension_not_in_filter"
 
 
 @pytest.mark.asyncio
-async def test_read_comses_files_errors_when_cache_missing(monkeypatch, tmp_path, mock_context):
+async def test_read_comses_files_errors_when_cache_missing(
+    monkeypatch, tmp_path, mock_context
+):
     from fastmcp.exceptions import ToolError
 
     from netlogo_mcp import tools
@@ -881,7 +910,9 @@ async def test_read_comses_files_errors_when_cache_missing(monkeypatch, tmp_path
 
 
 @pytest.mark.asyncio
-async def test_read_comses_files_zero_match_returns_empty_files(monkeypatch, tmp_path, mock_context):
+async def test_read_comses_files_zero_match_returns_empty_files(
+    monkeypatch, tmp_path, mock_context
+):
     from netlogo_mcp import tools
 
     identifier = "abc"
@@ -904,7 +935,9 @@ async def test_read_comses_files_zero_match_returns_empty_files(monkeypatch, tmp
 
 
 @pytest.mark.asyncio
-async def test_read_comses_files_resolves_latest_via_http(monkeypatch, tmp_path, mock_context):
+async def test_read_comses_files_resolves_latest_via_http(
+    monkeypatch, tmp_path, mock_context
+):
     from netlogo_mcp import tools
 
     identifier = "aaaaaaaa-1111-4aaa-8aaa-111111111111"
@@ -948,11 +981,13 @@ def test_explore_comses_prompt_has_required_rules():
     assert "rumor spreading" in body
     # Pin-the-version rule.
     assert "resolved_version" in body
-    assert "Never pass \"latest\" again" in body or 'Never pass "latest"' in body
+    assert 'Never pass "latest" again' in body or 'Never pass "latest"' in body
     # Both extensions when reading NetLogo source.
     assert ".nlogo" in body and ".nlogox" in body
     # Runtime-error stop rule.
-    assert "do NOT guess alternates" in body or "do not guess alternates" in body.lower()
+    assert (
+        "do NOT guess alternates" in body or "do not guess alternates" in body.lower()
+    )
     # Stop-and-ask fallback and no auto-translation.
     assert "Stop-and-ask" in body or "stop-and-ask" in body.lower()
     assert "Do NOT auto-translate" in body or "not auto-translate" in body.lower()

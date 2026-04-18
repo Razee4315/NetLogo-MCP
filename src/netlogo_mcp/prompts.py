@@ -96,7 +96,7 @@ def explore_comses(topic: str) -> list[Message]:
             content=(
                 f"Find an agent-based model matching '{topic}' on CoMSES Net "
                 "and run a short baseline. Follow these rules exactly.\n\n"
-                "1. Call `search_comses(query=\"" + topic + "\")`. Pick a top "
+                '1. Call `search_comses(query="' + topic + '")`. Pick a top '
                 "match preferring peer-reviewed + NetLogo results when "
                 "available, but show me other strong candidates too if there "
                 "aren't enough NetLogo ones.\n"
@@ -106,12 +106,12 @@ def explore_comses(topic: str) -> list[Message]:
                 "3. Call `open_comses_model(identifier=<UUID>)`. **Capture "
                 "`resolved_version` from the JSON response** and reuse it for "
                 "every subsequent `read_comses_files` call. Never pass "
-                "\"latest\" again in this flow — the version could change "
+                '"latest" again in this flow — the version could change '
                 "between calls and you'd inspect a different cache slot.\n"
-                "4. If the model is NetLogo (status = \"loaded_netlogo\"):\n"
+                '4. If the model is NetLogo (status = "loaded_netlogo"):\n'
                 "   a. Call `read_comses_files(identifier=<UUID>, "
-                "version=<resolved_version>, extensions=[\".nlogo\", "
-                "\".nlogox\"])` — always include BOTH extensions, since the "
+                'version=<resolved_version>, extensions=[".nlogo", '
+                '".nlogox"])` — always include BOTH extensions, since the '
                 "archive may have picked a .nlogox variant.\n"
                 "   b. Scan the source for `to <name>` procedure names and "
                 "`to-report <name>` reporters. Do NOT assume `setup` / `go` "
@@ -120,20 +120,20 @@ def explore_comses(topic: str) -> list[Message]:
                 "setup/initialize/start, OR no candidate reporters exist, "
                 "stop after loading and ask me which procedure to run. Do "
                 "not force-run commands the model does not define.\n"
-                "   d. Otherwise: call `command(\"<discovered setup>\")`. If "
+                '   d. Otherwise: call `command("<discovered setup>")`. If '
                 "that call errors (model wants parameters, files, a "
                 "different invocation order, etc.), **stop and ask me** — "
                 "do NOT guess alternates. Otherwise call "
                 "`run_simulation(ticks=100, reporters=[<discovered>])` then "
                 "`export_view`.\n"
                 "   e. Call `read_comses_files(identifier=<UUID>, "
-                "version=<resolved_version>, extensions=[\".md\", \".txt\"], "
+                'version=<resolved_version>, extensions=[".md", ".txt"], '
                 "max_total_bytes=50000)` to read the ODD / README and "
                 "summarize what the model simulates.\n"
                 "5. If the model is NOT NetLogo (status = "
-                "\"not_runnable_in_netlogo\"):\n"
+                '"not_runnable_in_netlogo"):\n'
                 "   a. Call `read_comses_files(identifier=<UUID>, "
-                "version=<resolved_version>, extensions=[\".md\", \".txt\"])` "
+                'version=<resolved_version>, extensions=[".md", ".txt"])` '
                 "for the ODD doc.\n"
                 "   b. State the language clearly, show the citation, "
                 "summarize the ODD findings, and stop. Do NOT auto-translate "

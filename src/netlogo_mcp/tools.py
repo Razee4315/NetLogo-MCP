@@ -485,13 +485,13 @@ def _compact_search_result(entry: dict) -> dict:
         "identifier": entry.get("identifier"),
         "title": entry.get("title"),
         "description": (
-            entry.get("summarizedDescription")
-            or entry.get("description")
-            or ""
+            entry.get("summarizedDescription") or entry.get("description") or ""
         )[:500],
         "authors": authors,
         "latestVersion": entry.get("latestVersionNumber"),
-        "tags": [t.get("name") if isinstance(t, dict) else t for t in entry.get("tags") or []],
+        "tags": [
+            t.get("name") if isinstance(t, dict) else t for t in entry.get("tags") or []
+        ],
         "language": language,
         "isPeerReviewed": entry.get("peerReviewed", False),
         "downloads": entry.get("downloadCount", 0),
