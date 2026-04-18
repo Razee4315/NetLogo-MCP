@@ -59,8 +59,27 @@ By default, a real NetLogo window opens so you can watch your simulations run li
 | `save_model(name, code)` | Save model to file |
 | `export_world()` | Export full world state to CSV |
 | `list_models()` | List model files in models directory |
+| `search_comses(query)` | Search the CoMSES Net model library |
+| `get_comses_model(uuid)` | Fetch metadata + citation text for one COMSES model |
+| `download_comses_model(uuid)` | Safely download + extract a COMSES archive |
+| `open_comses_model(uuid)` | Download (or reuse cache) and load NetLogo models |
+| `read_comses_files(uuid)` | Read ODD / source contents from a downloaded model |
 
-Plus 3 resources (primitives reference, programming guide, model source) and 3 prompts (`analyze_model`, `create_abm`, `parameter_sweep`).
+Plus 3 resources (primitives reference, programming guide, model source) and 4 prompts (`analyze_model`, `create_abm`, `parameter_sweep`, `explore_comses`).
+
+### CoMSES Net integration
+
+NetLogo MCP can search and safely fetch any model from the [CoMSES Net computational model library](https://www.comses.net/) — the largest peer-reviewed ABM repository. NetLogo models load automatically; Python / R / Julia models are identified and cached locally so you can inspect their source and ODD documentation from any MCP client, including clients with no filesystem tools.
+
+Try it with the `explore_comses` prompt or just ask: *"Find me a predator-prey ABM on COMSES and run a short baseline."*
+
+Safety properties (applied to every download):
+- Archives streamed with a hard byte cap (`COMSES_MAX_DOWNLOAD_MB`, default 50 MB) enforced mid-stream, not just via HEAD.
+- Every zip member is path-traversal-validated before extraction.
+- Zip-bomb refusal on uncompressed-size overflow.
+- Extraction is atomic: downloads land in a temp dir first, then move to the cache only on success.
+- Cache directories are trusted only when they carry the `.comses_complete` marker.
+- `"latest"` is resolved to a concrete version before any cache path is computed; the resolved version is returned to the AI so follow-up reads stay pinned to the same slot.
 
 ## Prerequisites
 
@@ -163,6 +182,7 @@ JAVA_HOME=C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot
 | `NETLOGO_MODELS_DIR` | No | Directory for model files (defaults to `./models`) |
 | `NETLOGO_GUI` | No | `"true"` (default) for live GUI window, `"false"` for headless |
 | `NETLOGO_EXPORTS_DIR` | No | Directory for exported views/worlds (defaults to `./exports`) |
+| `COMSES_MAX_DOWNLOAD_MB` | No | Max CoMSES archive size in MB (default 50). Enforced mid-stream. |
 
 ## Client Setup
 

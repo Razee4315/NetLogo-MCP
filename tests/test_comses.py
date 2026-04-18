@@ -931,3 +931,28 @@ async def test_read_comses_files_resolves_latest_via_http(monkeypatch, tmp_path,
     data = json.loads(raw)
     assert data["resolved_version"] == "1.2.0"
     assert "docs/ODD.md" in data["files"]
+
+
+# ── explore_comses prompt ────────────────────────────────────────────────────
+
+
+def test_explore_comses_prompt_has_required_rules():
+    """The prompt must encode the rules that keep the flow researcher-safe."""
+    from netlogo_mcp.prompts import explore_comses
+
+    msgs = explore_comses("rumor spreading")
+    assert len(msgs) == 1
+    body = msgs[0].content.text
+
+    # Topic is interpolated.
+    assert "rumor spreading" in body
+    # Pin-the-version rule.
+    assert "resolved_version" in body
+    assert "Never pass \"latest\" again" in body or 'Never pass "latest"' in body
+    # Both extensions when reading NetLogo source.
+    assert ".nlogo" in body and ".nlogox" in body
+    # Runtime-error stop rule.
+    assert "do NOT guess alternates" in body or "do not guess alternates" in body.lower()
+    # Stop-and-ask fallback and no auto-translation.
+    assert "Stop-and-ask" in body or "stop-and-ask" in body.lower()
+    assert "Do NOT auto-translate" in body or "not auto-translate" in body.lower()

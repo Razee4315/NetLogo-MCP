@@ -16,9 +16,10 @@ NetLogo_MCP/
 ├── src/
 │   └── netlogo_mcp/
 │       ├── server.py           # FastMCP app, stdout protection, lifespan
-│       ├── tools.py            # All 12 tools
+│       ├── tools.py            # All 17 tools (12 NetLogo + 5 CoMSES)
+│       ├── comses.py           # CoMSES Net API client + safe zip extract
 │       ├── resources.py        # 3 resources (docs + model source)
-│       ├── prompts.py          # 3 prompts (analyze, create, sweep)
+│       ├── prompts.py          # 4 prompts (analyze, create, sweep, explore_comses)
 │       ├── config.py           # Environment variable loading
 │       ├── py.typed            # PEP 561 type marker
 │       └── data/
@@ -30,7 +31,9 @@ NetLogo_MCP/
     ├── conftest.py             # Mock fixtures (no JVM needed)
     ├── test_server.py
     ├── test_tools.py
-    └── test_resources.py
+    ├── test_comses.py          # CoMSES integration: API, zip safety, tools, prompt
+    ├── test_resources.py
+    └── fixtures/comses/        # Captured JSON fixtures for CoMSES tests
 ```
 
 ## Tech Stack
