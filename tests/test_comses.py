@@ -473,6 +473,26 @@ def test_find_odd_doc_prefers_odd_then_readme(tmp_path):
     assert found is not None and found.name == "ODD.md"
 
 
+def test_find_odd_doc_binary_picks_up_pdf_with_odd_in_name(tmp_path):
+    """Real-world case from FNNR-ABM smoke test — PDF ODD is the only doc."""
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "FNNR ABM - ODD Protocol with References.pdf").write_bytes(
+        b"%PDF-1.4\n"
+    )
+    # Text scanner finds nothing.
+    assert comses.find_odd_doc(tmp_path) is None
+    # Binary scanner finds the PDF.
+    found = comses.find_odd_doc_binary(tmp_path)
+    assert found is not None and found.suffix == ".pdf"
+    assert "ODD" in found.name
+
+
+def test_find_odd_doc_binary_none_when_only_text_docs(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "ODD.md").write_text("odd")
+    assert comses.find_odd_doc_binary(tmp_path) is None
+
+
 # ── High-level download_release + MCP tool ───────────────────────────────────
 
 
@@ -788,7 +808,8 @@ async def test_open_comses_model_non_netlogo_returns_structured_json(
         {
             "code/model.py": b"# python\n",
             "codemeta.json": b'{"programmingLanguage": {"name": "Python"}}',
-            "docs/ODD.md": b"# ODD",
+            # Simulate the FNNR-ABM real case: ODD is a PDF only.
+            "docs/FNNR ABM - ODD Protocol.pdf": b"%PDF-1.4\n",
         },
     )
 
@@ -801,6 +822,11 @@ async def test_open_comses_model_non_netlogo_returns_structured_json(
         mock_context, identifier=identifier, version=version
     )
     data = json.loads(raw)
+    # Binary ODD is surfaced so the AI can tell the user where to read it.
+    assert data["odd_doc"] is None
+    assert data["odd_doc_binary"] is not None
+    assert "ODD" in data["odd_doc_binary"]
+    assert data["odd_doc_binary"].endswith(".pdf")
 
     assert data["status"] == "not_runnable_in_netlogo"
     assert data["language"] == "Python"

@@ -720,6 +720,9 @@ def _outcome_to_payload(outcome: _comses.DownloadOutcome) -> dict:
         "loaded_netlogo_file": rel(outcome.selected_netlogo_file),
         "code_files": [rel(p) for p in outcome.code_files],
         "odd_doc": rel(outcome.odd_doc),
+        # Non-text ODD (PDF/DOCX) — read_comses_files cannot read it, but
+        # the AI should surface the path so the user can open it manually.
+        "odd_doc_binary": rel(outcome.odd_doc_binary),
     }
 
 

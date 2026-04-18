@@ -585,25 +585,53 @@ def select_netlogo_file(netlogo_files: list[Path], extracted_dir: Path) -> Path 
     return candidates[-1]
 
 
-def find_odd_doc(extracted_dir: Path) -> Path | None:
-    """First matching ODD / documentation file, None if none found."""
+_ODD_NAME_PATTERNS = ("ODD", "odd", "documentation", "README", "readme")
+_ODD_TEXT_EXTS = (".md", ".txt")
+_ODD_BINARY_EXTS = (".pdf", ".docx", ".odt", ".doc")
+
+
+def _find_odd_by_exts(extracted_dir: Path, exts: tuple[str, ...]) -> Path | None:
+    """Shared scanner for `find_odd_doc` / `find_odd_doc_binary`."""
     docs_dir = extracted_dir / "docs"
     search_roots = [docs_dir, extracted_dir] if docs_dir.is_dir() else [extracted_dir]
-    # Priority patterns (case-insensitive).
-    patterns = ("ODD", "odd", "documentation", "README", "readme")
     for root in search_roots:
         if not root.is_dir():
             continue
         for p in sorted(root.iterdir(), key=lambda x: x.name):
             if not p.is_file():
                 continue
-            if p.suffix.lower() not in (".md", ".txt"):
+            if p.suffix.lower() not in exts:
                 continue
             name = p.name
-            for pat in patterns:
+            for pat in _ODD_NAME_PATTERNS:
                 if name.startswith(pat):
                     return p
+    # Second pass: match anywhere in the filename (e.g. "FNNR ABM - ODD.pdf").
+    for root in search_roots:
+        if not root.is_dir():
+            continue
+        for p in sorted(root.iterdir(), key=lambda x: x.name):
+            if not p.is_file() or p.suffix.lower() not in exts:
+                continue
+            lower = p.name.lower()
+            if any(pat.lower() in lower for pat in _ODD_NAME_PATTERNS):
+                return p
     return None
+
+
+def find_odd_doc(extracted_dir: Path) -> Path | None:
+    """First matching text ODD / documentation file, None if none found."""
+    return _find_odd_by_exts(extracted_dir, _ODD_TEXT_EXTS)
+
+
+def find_odd_doc_binary(extracted_dir: Path) -> Path | None:
+    """First matching ODD / documentation file in a binary format (PDF/DOCX/etc.).
+
+    Useful so the tool can tell the AI "an ODD exists but is a PDF — the
+    user will need to open it in a viewer." The file itself is NOT read
+    by read_comses_files (v1 scope limit).
+    """
+    return _find_odd_by_exts(extracted_dir, _ODD_BINARY_EXTS)
 
 
 @dataclass
@@ -622,6 +650,7 @@ class DownloadOutcome:
     selected_netlogo_file: Path | None
     code_files: list[Path]
     odd_doc: Path | None
+    odd_doc_binary: Path | None
     license_name: str | None
     title: str | None
 
@@ -737,6 +766,7 @@ def _inspect_extracted(
     selected = select_netlogo_file(netlogo, extracted_path)
     code = find_code_files(extracted_path)
     odd = find_odd_doc(extracted_path)
+    odd_bin = find_odd_doc_binary(extracted_path)
     return DownloadOutcome(
         identifier=identifier,
         resolved_version=resolved_version,
@@ -747,6 +777,7 @@ def _inspect_extracted(
         selected_netlogo_file=selected,
         code_files=code,
         odd_doc=odd,
+        odd_doc_binary=odd_bin,
         license_name=license_name,
         title=title,
     )
