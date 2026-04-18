@@ -13,6 +13,7 @@ from fastmcp import Context
 from fastmcp.exceptions import ToolError
 from fastmcp.utilities.types import Image
 
+from . import comses as _comses
 from .config import get_exports_dir, get_models_dir
 from .server import mcp
 
@@ -448,3 +449,211 @@ async def export_world(ctx: Context) -> str:
         raise _wrap_netlogo_error(e) from e
 
     return f"World exported to {export_path}"
+
+
+# ── CoMSES Net integration ──────────────────────────────────────────────────
+#
+# Five tools + one prompt that let an AI client browse, inspect, download, and
+# open models from https://www.comses.net (the Network for Computational
+# Modeling in Social and Ecological Sciences). See docs/COMSES_PLAN.md for the
+# full spec.
+
+
+def _compact_search_result(entry: dict) -> dict:
+    """Pull the fields an LLM actually needs out of a COMSES search result."""
+    authors = []
+    for c in entry.get("allContributors") or []:
+        user = (c or {}).get("user") or {}
+        name = (
+            user.get("name")
+            or (c.get("givenName", "") + " " + c.get("familyName", "")).strip()
+            or c.get("name")
+            or ""
+        )
+        if name:
+            authors.append(name)
+
+    # Language comes from the latest release's releaseLanguages, if present.
+    language = _language_from_releases(entry.get("releases") or [])
+
+    return {
+        "identifier": entry.get("identifier"),
+        "title": entry.get("title"),
+        "description": (
+            entry.get("summarizedDescription")
+            or entry.get("description")
+            or ""
+        )[:500],
+        "authors": authors,
+        "latestVersion": entry.get("latestVersionNumber"),
+        "tags": [t.get("name") if isinstance(t, dict) else t for t in entry.get("tags") or []],
+        "language": language,
+        "isPeerReviewed": entry.get("peerReviewed", False),
+        "downloads": entry.get("downloadCount", 0),
+        "doi": entry.get("doi"),
+        "live": entry.get("live"),
+    }
+
+
+def _language_from_releases(releases: list) -> str | None:
+    """Pick a language name from the release with the latest version, if any."""
+    if not releases:
+        return None
+    # Prefer the release flagged as latest, else the last one.
+    target = None
+    for rel in releases:
+        if (rel or {}).get("latestVersion"):
+            target = rel
+            break
+    if target is None:
+        target = releases[-1]
+    langs = (target or {}).get("releaseLanguages") or []
+    for lang in langs:
+        pl = (lang or {}).get("programmingLanguage") or {}
+        name = pl.get("name") or (lang or {}).get("name")
+        if name:
+            return str(name)
+    # Fallback: programmingLanguageTags[] or platforms[]
+    tags = (target or {}).get("programmingLanguageTags") or []
+    if tags:
+        first = tags[0]
+        return first.get("name") if isinstance(first, dict) else str(first)
+    return None
+
+
+@mcp.tool()
+async def search_comses(
+    ctx: Context,
+    query: str = "",
+    page: int = 1,
+) -> str:
+    """Search the CoMSES Net computational model library.
+
+    Args:
+        query: Free-text search across title, description, authors, tags.
+               Leave empty to browse all models.
+        page: 1-indexed page number (10 results per page).
+
+    Returns JSON with `count`, `page`, `numPages`, and a `results` list of
+    compact entries (`identifier`, `title`, `description`, `authors`,
+    `latestVersion`, `tags`, `language`, `isPeerReviewed`, `downloads`, `doi`,
+    `live`).
+
+    The `language` field (inferred from the latest release) lets the AI decide
+    whether this is a NetLogo model it can load directly or a Python/R/etc.
+    model that needs a different runtime. Results are NOT filtered by
+    language — that's an AI/user decision.
+    """
+    if page < 1:
+        raise ToolError("page must be >= 1")
+    try:
+        async with _comses.ComsesClient() as client:
+            raw = await client.search(query=query, page=page)
+    except _comses.ComsesError as e:
+        raise ToolError(f"COMSES search failed: {e}") from e
+
+    compact = {
+        "count": raw.get("count", 0),
+        "page": raw.get("currentPage", page),
+        "numPages": raw.get("numPages", 1),
+        "numResults": raw.get("numResults", len(raw.get("results") or [])),
+        "results": [_compact_search_result(e) for e in (raw.get("results") or [])],
+    }
+    return json.dumps(compact, indent=2)
+
+
+def _compact_codebase_detail(data: dict) -> dict:
+    """Shape the codebase detail endpoint into the AI-friendly payload."""
+    authors: list[dict] = []
+    for c in data.get("allContributors") or []:
+        user = (c or {}).get("user") or {}
+        name = (
+            user.get("name")
+            or (c.get("givenName", "") + " " + c.get("familyName", "")).strip()
+            or ""
+        )
+        authors.append(
+            {
+                "name": name,
+                "affiliation": user.get("institutionName") or c.get("affiliation"),
+                "orcid": user.get("orcid") or c.get("orcid"),
+            }
+        )
+
+    releases = []
+    for rel in data.get("releases") or []:
+        releases.append(
+            {
+                "versionNumber": rel.get("versionNumber"),
+                "live": rel.get("live"),
+                "downloadable": bool(rel.get("submittedPackage")),
+                "firstPublishedAt": rel.get("firstPublishedAt"),
+                "lastPublishedOn": rel.get("lastPublishedOn"),
+                "language": _language_from_releases([rel]),
+                "license": (rel.get("license") or {}).get("name"),
+                "doi": rel.get("doi"),
+            }
+        )
+
+    return {
+        "identifier": data.get("identifier"),
+        "title": data.get("title"),
+        "description": data.get("description") or "",
+        "summarizedDescription": data.get("summarizedDescription") or "",
+        "authors": authors,
+        "tags": [
+            t.get("name") if isinstance(t, dict) else t for t in data.get("tags") or []
+        ],
+        "releases": releases,
+        "latestVersion": data.get("latestVersionNumber"),
+        "doi": data.get("doi"),
+        "repositoryUrl": data.get("repositoryUrl"),
+        "downloadCount": data.get("downloadCount", 0),
+        "peerReviewed": data.get("peerReviewed", False),
+        "citation_text": data.get("citationText") or "",
+    }
+
+
+@mcp.tool()
+async def get_comses_model(ctx: Context, identifier: str) -> str:
+    """Get detailed metadata for a specific CoMSES model.
+
+    Args:
+        identifier: Full UUID from `search_comses` results.
+
+    Returns JSON with title, description, all authors (name/affiliation/ORCID),
+    all releases (version, language, license, downloadable flag), tags, DOI,
+    repository URL, download counts, and a ready-to-use `citation_text`
+    researchers can paste into papers.
+
+    The `citation_text` is pulled from the latest release; call this before
+    downloading to present the user with author/license/citation info.
+    """
+    if not identifier:
+        raise ToolError("identifier is required")
+    try:
+        async with _comses.ComsesClient() as client:
+            data = await client.get_codebase(identifier)
+            # Citation lives on the release, not the codebase. Pull it from
+            # the latest release if there is one.
+            latest = data.get("latestVersionNumber")
+            if latest:
+                try:
+                    rel = await client.get_release(identifier, str(latest))
+                    if rel.get("citationText"):
+                        data["citationText"] = rel["citationText"]
+                    # Annotate the matching release in-place so detail shape
+                    # stays consistent without a second request.
+                    for r in data.get("releases") or []:
+                        if r.get("versionNumber") == latest:
+                            r["submittedPackage"] = rel.get("submittedPackage")
+                            r["live"] = rel.get("live", r.get("live"))
+                            r["license"] = rel.get("license", r.get("license"))
+                            r["doi"] = rel.get("doi", r.get("doi"))
+                except _comses.ComsesError:
+                    # Non-fatal — fall back to what get_codebase returned.
+                    pass
+    except _comses.ComsesError as e:
+        raise ToolError(f"COMSES get_comses_model failed: {e}") from e
+
+    return json.dumps(_compact_codebase_detail(data), indent=2)

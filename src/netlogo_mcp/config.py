@@ -69,6 +69,26 @@ def get_gui_mode() -> bool:
     return val not in ("false", "0", "no")
 
 
+def get_comses_max_download_mb() -> float:
+    """Max size of a COMSES archive download, in megabytes.
+
+    Enforced at stream time (per-byte), not just via HEAD. Default 50 MB.
+    """
+    val = os.environ.get("COMSES_MAX_DOWNLOAD_MB", "50")
+    try:
+        return max(1.0, float(val))
+    except ValueError:
+        return 50.0
+
+
+def get_comses_cache_dir() -> Path:
+    """Directory for downloaded/extracted COMSES archives."""
+    models_dir = get_models_dir()
+    p = models_dir / "comses"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 def get_exports_dir() -> Path:
     """Return the directory where exported images and worlds are saved."""
     val = os.environ.get(

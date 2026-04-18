@@ -1,0 +1,43 @@
+{
+  "identifier": "aaaaaaaa-1111-4aaa-8aaa-111111111111",
+  "title": "Wolf Sheep Predation",
+  "description": "Classic predator-prey model adapted from the NetLogo models library. Wolves hunt sheep, sheep eat grass, grass regrows after a delay.",
+  "summarizedDescription": "Predators eat prey; prey eat grass; grass regrows.",
+  "allContributors": [
+    {
+      "user": {"name": "Jane Author", "institutionName": "ASU", "orcid": "0000-0001-0000-0000"},
+      "givenName": "Jane",
+      "familyName": "Author"
+    }
+  ],
+  "tags": [{"name": "predator-prey"}, {"name": "NetLogo"}],
+  "releases": [
+    {
+      "versionNumber": "1.1.0",
+      "live": true,
+      "latestVersion": false,
+      "releaseLanguages": [
+        {"programmingLanguage": {"id": 19, "name": "NetLogo"}}
+      ],
+      "license": {"name": "MIT", "url": "https://spdx.org/licenses/MIT"},
+      "doi": null
+    },
+    {
+      "versionNumber": "1.2.0",
+      "live": true,
+      "latestVersion": true,
+      "releaseLanguages": [
+        {"programmingLanguage": {"id": 19, "name": "NetLogo"}}
+      ],
+      "license": {"name": "MIT", "url": "https://spdx.org/licenses/MIT"},
+      "doi": "10.25937/example-one"
+    }
+  ],
+  "latestVersionNumber": "1.2.0",
+  "firstPublishedAt": "2021-01-01",
+  "lastPublishedOn": "2023-06-15",
+  "downloadCount": 482,
+  "peerReviewed": true,
+  "doi": "10.25937/example-one",
+  "repositoryUrl": "https://github.com/example/wolf-sheep"
+}
