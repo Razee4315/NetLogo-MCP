@@ -24,7 +24,8 @@ NetLogo_MCP/
 │       └── data/
 │           ├── primitives.md   # NetLogo primitives reference
 │           └── programming_guide.md
-├── models/                     # Drop .nlogo/.nlogox files here
+├── models/                     # Drop your .nlogo/.nlogox files here (empty by default)
+├── exports/                    # PNG views and world CSVs saved here at runtime
 └── tests/
     ├── conftest.py             # Mock fixtures (no JVM needed)
     ├── test_server.py
