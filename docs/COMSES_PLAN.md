@@ -158,8 +158,8 @@ The tag filter does not map to internal language IDs. Must either:
 - Filter client-side after fetch by inspecting `release.releaseLanguages`
 
 Mitigation:
-- In `search_comses`, accept a `language` param that we use via `query=` when it's "NetLogo".
-- After fetching a candidate, re-verify with the release's `releaseLanguages` field before recommending.
+- `search_comses` does not accept a `language` filter — we explicitly do not hide results by language (see Section 4.1).
+- After fetching a candidate, the server reads `release.releaseLanguages` and exposes a `language` field on each result so the AI and user can route correctly.
 
 ### Medium: User-defined tags are free-form and inconsistent
 
@@ -211,7 +211,7 @@ Some models have it, some don't. File naming varies.
 
 Mitigation:
 - After extraction, look for common patterns in `docs/`: `ODD*.md`, `ODD*.pdf`, `documentation*.txt`, `README*.md`.
-- Expose the raw file to Claude as a resource if it's a text format. PDFs skip for now.
+- Record the path in the `open_comses_model` / `download_comses_model` result so the AI can read it via `read_comses_files` (text formats only — PDFs are out of scope for v1).
 
 ### Low: Models may not be loadable by NetLogo MCP
 
@@ -301,11 +301,12 @@ async def download_comses_model(
 ```
 
 Implementation details (see sections 3 and 4.6 for full requirements):
+- **Resolve `"latest"` to a concrete version BEFORE computing any cache path** (see 4.6).
 - HEAD screen → refuse if `Content-Length` known-exceeds cap.
 - Stream download to `temp_file.zip` under `models/comses/.tmp/`, enforce byte cap mid-stream.
 - Validate every zip member path (reject traversal).
 - Check sum of uncompressed sizes; refuse zip bombs (> `2 × max_mb`).
-- Extract to `temp_dir/`, then `shutil.move(temp_dir, models/comses/{uuid}/{version}/)` atomically.
+- Extract to `temp_dir/`, then `shutil.move(temp_dir, models/comses/{uuid}/{concrete_version}/)` atomically.
 - Write `.comses_complete` marker. Future calls check this marker before reusing cache.
 - Detect language from `codemeta.json` (`programmingLanguage` field) or from extension scan fallback.
 
@@ -339,6 +340,21 @@ async def open_comses_model(
 
 This is the **single entry point** for "I want this model ready to use." It subsumes downloading. Users who want to download without opening can call `download_comses_model` directly; most AI flows will call this tool.
 
+#### Selecting which NetLogo file to load (when the archive has more than one)
+
+Some COMSES archives contain multiple `.nlogo` / `.nlogox` files (e.g.,
+different variants of a model, or the authors shipped both a v1 and v2).
+`open_comses_model` picks deterministically:
+
+1. If exactly one `.nlogo` or `.nlogox` file exists, use it.
+2. Otherwise, prefer files under `code/` over any other directory.
+3. Within that, prefer `.nlogox` over `.nlogo` (newer format).
+4. Within that, pick the lexicographically largest filename (typically the
+   latest numbered version, e.g. `WolfSheep_3.0.nlogo` over `WolfSheep_2.0.nlogo`).
+5. The response includes `all_netlogo_files` listing every candidate and
+   `loaded_netlogo_file` saying which one we picked, so the AI can offer
+   the user a chance to switch.
+
 The non-NetLogo response shape:
 
 ```json
@@ -368,21 +384,69 @@ async def read_comses_files(
 ) -> str:
     """Return contents of source + documentation files from a downloaded COMSES model.
 
+    The model must already be downloaded. If the cache is absent, the tool
+    returns an error telling the AI to call download_comses_model or
+    open_comses_model first.
+
     Works on every MCP client regardless of filesystem tool availability.
-    Use this to read ODD docs, or to read source code when translating or
-    explaining a non-NetLogo model.
 
     Args:
-        identifier: Full model UUID (must have been downloaded first).
-        version: Version string or 'latest'.
+        identifier: Full model UUID.
+        version: Version string or 'latest'. Resolved to concrete version
+                 for cache lookup.
         extensions: File types to include. Default covers code + docs.
         max_total_bytes: Cap total returned content (default 200KB).
 
-    Returns JSON: {files: {relative_path: content}, total_bytes, truncated}
+    Returns JSON — see contract below.
     """
 ```
 
-Why it's in v1: the earlier plan deferred this to v2 on the assumption that every MCP client has filesystem tools. The reviewer caught that as wrong — Claude Desktop (a major target) does not, and even in Claude Code the extracted files live deep under `models/comses/{uuid}/{version}/docs/` which may not match our existing `model_source` resource's filename-based lookup. `read_comses_files` guarantees the AI can read ODD summaries and source code regardless of client.
+#### Return contract
+
+```json
+{
+  "resolved_version": "1.2.0",
+  "files": {
+    "docs/ODD.md":        {"content": "...", "full_size": 18071, "returned_size": 18071, "truncated": false},
+    "code/WolfSheep.nlogo": {"content": "...", "full_size": 57867, "returned_size": 50000, "truncated": true}
+  },
+  "omitted_files": ["results/checkpoint.json", "data/large_input.csv"],
+  "omitted_reason_by_file": {
+    "results/checkpoint.json": "extension_not_in_filter",
+    "data/large_input.csv":   "byte_cap_reached"
+  },
+  "total_returned_bytes": 68071,
+  "any_truncated": true
+}
+```
+
+#### Priority ordering (deterministic)
+
+Files are included in this priority, until the byte cap is hit:
+1. ODD docs: `docs/ODD*`, `docs/odd*`, `docs/documentation*`, `docs/README*`, `README*`
+2. NetLogo source: `**/*.nlogo`, `**/*.nlogox`
+3. Other code in request-order of `extensions`: `.py`, `.r`, `.R`, `.java`, `.jl`
+4. Remaining `.md`, `.txt` outside `docs/`
+5. Anything else matching `extensions` not yet included
+
+If the byte cap is hit mid-file, that file's `content` is cut at a safe
+boundary (prefer line end), `returned_size < full_size`, and `truncated: true`.
+Files not even started are listed in `omitted_files` with reason
+`"byte_cap_reached"`.
+
+This contract is strict enough that an AI reading the result knows:
+- exactly which files it saw
+- exactly which files it did not see, and why
+- for any file it saw, whether it saw all of it
+
+Without this, an AI could read a truncated `.nlogo` file, miss the
+`to setup` definition at the bottom, and conclude the model has no setup
+procedure. The contract prevents that class of error.
+
+Why it's in v1 (not deferred): Claude Desktop has no filesystem tools, and
+the existing `model_source` resource only handles flat filenames — not the
+nested paths under `models/comses/{uuid}/{version}/docs/` or `/code/`. Without
+`read_comses_files`, the happy-path flow doesn't actually work across clients.
 
 ### Single Prompt: `explore_comses` (NetLogo-first)
 
@@ -404,37 +468,53 @@ def explore_comses(topic: str) -> list[Message]:
 The prompt instructs the AI to:
 1. Search COMSES for models matching the topic; prefer peer-reviewed + NetLogo-tagged.
 2. Show the user the top match with title, authors, description, **citation text**.
-3. Call `open_comses_model`. If NetLogo-loaded:
-   a. Read the `.nlogo` source file content to find actual procedure names (commonly `to setup`, `to go`, but may differ).
-   b. Find reporters by scanning for `to-report` definitions.
-   c. Run the discovered setup, then a short `run_simulation` using the discovered reporters.
-   d. Export view, summarize results referencing the ODD doc via `read_comses_files`.
-4. If not NetLogo, state the language clearly, show citation, point to `read_comses_files` for further exploration, and stop.
-5. **Do not auto-translate.** If the user explicitly asks to translate, proceed, but state limitations honestly.
+3. Call `open_comses_model`.
+4. If the model is NetLogo (happy path):
+   a. Call `read_comses_files` to get the `.nlogo` source content.
+   b. Scan the source for `to <name>` procedure names and `to-report <name>` reporters.
+   c. **Fallback if nothing useful is found:** if no procedure with a name resembling `setup` / `initialize` / `start` exists, OR no reporters that aren't trivial one-liners are found, **stop after loading.** Do not force-run commands the model doesn't define. Report the discovered procedures/reporters (if any) and ask the user which to run.
+   d. If a plausible setup + reporter set exists, run them: one `command(<setup>)` call, then a short `run_simulation` with the discovered reporters, then `export_view`.
+   e. Summarize results, referencing the ODD doc content obtained via `read_comses_files`.
+5. If not NetLogo:
+   a. The `open_comses_model` call already downloaded and extracted the archive.
+   b. Call `read_comses_files` to get the ODD doc and a summary of what the model does.
+   c. State the language clearly, show citation, summarize the ODD findings, and stop.
+   d. Do not auto-translate. If the user later explicitly asks to translate, see "On Translation" below.
 
 ### On Translation (Optional Follow-up Only)
 
-Translation is supported but is **not** a headline feature in v1. When a user explicitly asks to translate a non-NetLogo model:
+Not a v1 headline feature. On explicit user request:
 
-- Use `read_comses_files` to get the source.
+- Use `read_comses_files` to get source + ODD.
 - Write an equivalent NetLogo model; use `create_model` to load it.
-- Explicitly state what was simplified or skipped (e.g., "NumPy vectorized math replaced with plain NetLogo list ops", "networkx graph replaced with links — may need the `nw` extension for full fidelity").
+- State what was simplified or skipped (e.g. NumPy vectorized math → plain NetLogo list ops; networkx graph → links, may need `nw` extension).
 - Recommend the user verify against the original paper's expected outputs.
 
-Realistic translation quality matrix (for reference only — not shown in tool output):
-
-| Source | Conversion Quality |
-|--------|-------------------|
-| Simple Python Mesa (basic agents, no external libs) | Good |
-| Python with heavy NumPy math | Mediocre |
-| R with ggplot / data.table | Mediocre |
-| Java / C++ ABM | Hard (paradigm mismatch) |
-| Complex networks (networkx) | Possible with NetLogo `nw` extension |
-| GIS-heavy (geopandas, rasters) | Hard (needs NetLogo GIS extension) |
+Quality depends heavily on source complexity — simple Python Mesa maps cleanly; GIS-heavy or networkx-heavy sources usually don't. Be honest in each case.
 
 ### 4.6 Cache semantics (shared by download and open)
 
-A cached `models/comses/{uuid}/{version}/` directory is trusted **only** when its `.comses_complete` marker is present.
+#### Resolving `"latest"` to a concrete version (mandatory)
+
+Both `download_comses_model` and `open_comses_model` accept `version="latest"`.
+**Cache paths MUST NOT use the literal string `"latest"`.** That would let a
+stale 1.0.0 serve forever even after the author publishes 1.1.0.
+
+Algorithm:
+1. If the caller passes `version="latest"`, first call `get_codebase` (one
+   cheap JSON request) and read `latestVersionNumber` (e.g. `"1.1.0"`).
+2. From that point on, treat the version as the concrete string. Use it for
+   the cache directory name, the marker check, the download URL, and the
+   returned result.
+3. Never write a directory named `latest/` under `models/comses/{uuid}/`.
+
+The JSON returned to the AI includes the resolved `version` so the caller
+sees exactly what was used.
+
+#### Cache directory trust rules
+
+A cached `models/comses/{uuid}/{concrete_version}/` directory is trusted
+**only** when its `.comses_complete` marker is present.
 
 | Scenario | Behavior |
 |----------|----------|
@@ -443,6 +523,21 @@ A cached `models/comses/{uuid}/{version}/` directory is trusted **only** when it
 | Directory present, marker absent | Wipe directory, redownload. |
 | Download fails mid-stream | Temp files cleaned up; cache dir never created. |
 | Extraction fails mid-way | Temp extracted dir cleaned up; cache dir never created. |
+| Final dir appeared between our temp-extract and our move (race) | Check for the marker. If another writer finished and marked it, use theirs; discard our temp. If still unmarked, assume orphan — wipe it and retry the move once. |
+
+#### Concurrency assumption (v1)
+
+v1 assumes **single-process access per workspace.** One MCP server process,
+serialized tool calls. This matches the common deployment: one user, one
+Claude Code / Cursor session, one MCP server. No inter-process locking in v1.
+
+If a second process races on the same `uuid/{version}`, the worst case is a
+redundant download and a single orphaned temp directory. The fixed path
+validation and marker logic ensure no corruption — only wasted work. A
+proper `fcntl`/`portalocker` lock can be added in v2 if multi-process use
+becomes a real pattern.
+
+This is explicitly documented here rather than handwaved elsewhere.
 
 ---
 
@@ -524,6 +619,8 @@ def test_completion_marker_written_on_success(): ...
 # Cache behavior
 def test_reuses_cached_dir_when_marker_present(): ...
 def test_redownloads_when_marker_absent(): ...
+def test_latest_is_resolved_to_concrete_version_before_caching(): ...
+def test_race_orphan_without_marker_is_cleaned_and_retried_once(): ...
 
 # Tool-level integration
 def test_extract_finds_nlogo_files(): ...
@@ -532,6 +629,9 @@ def test_open_comses_model_loads_netlogo(): ...
 def test_open_comses_model_returns_fallback_for_non_netlogo(): ...
 def test_read_comses_files_respects_byte_cap(): ...
 def test_read_comses_files_truncates_and_sets_flag(): ...
+def test_read_comses_files_omits_files_with_reasons(): ...
+def test_read_comses_files_priority_odd_first_then_nlogo(): ...
+def test_read_comses_files_errors_when_cache_missing(): ...
 ```
 
 Use `httpx.MockTransport` to fake the COMSES API in tests. Fixtures: real captured JSON responses + two test zip archives (one good, one crafted with a traversal path) saved under `tests/fixtures/comses/`.
@@ -559,18 +659,20 @@ Server (happy path, NetLogo model):
 1. `search_comses("rumor spreading")` → N matches.
 2. AI picks a top peer-reviewed NetLogo match.
 3. `get_comses_model(uuid)` → AI presents title, authors, **citation text**, license.
-4. `open_comses_model(uuid)` → downloads safely (or uses cache), extracts, loads `code/RumorSpread.nlogo`.
-5. `read_comses_files(uuid, extensions=[".nlogo"])` → AI reads the actual source to **discover** the model's real procedure names (is it `setup` or `initialize`?) and its reporters (what does this model actually expose?). **The AI does not fabricate commands.**
-6. `command("<discovered setup>")` → model initialized.
-7. `run_simulation(<N ticks>, [<discovered reporters>])` → real data from this model, not invented metrics.
-8. `export_view()` → PNG.
-9. `read_comses_files(uuid, extensions=[".md", ".txt"], max_total_bytes=50000)` → AI reads the ODD doc and summarizes what the model demonstrates.
+4. `open_comses_model(uuid)` → resolves `"latest"` to concrete version, downloads safely (or uses cache), extracts, picks the right `.nlogo` file per Section 4.4 rules, loads it into NetLogo.
+5. `read_comses_files(uuid, extensions=[".nlogo"])` → AI reads the actual source to **discover** real procedure names and reporters. **The AI does not fabricate commands.**
+6. **Branch based on discovery:**
+   - **Plausible setup + useful reporters found:** `command("<discovered setup>")` → `run_simulation(<N ticks>, [<discovered reporters>])` → `export_view()`.
+   - **No plausible setup OR no useful reporters found:** stop after loading. Report to the user what was found (maybe just `setup` with no reporters, or an unusual procedure name). Ask which procedure to run or whether they want to inspect the source first.
+7. `read_comses_files(uuid, extensions=[".md", ".txt"], max_total_bytes=50000)` → AI reads the ODD doc and summarizes what the model demonstrates.
 
 Non-NetLogo model flow:
-1. `search_comses` → top match is Python.
-2. AI presents language, authors, citation, and summary of ODD via `read_comses_files`.
-3. AI tells user: "This model is in Python. The source is downloaded. I can explain the code or, if you explicitly want, translate it to NetLogo — but the translation will be approximate."
-4. Flow stops unless user asks to translate.
+1. `search_comses("rumor spreading")` → top match is Python.
+2. `get_comses_model(uuid)` → citation text + metadata.
+3. `open_comses_model(uuid)` → downloads + extracts (but does NOT load NetLogo). Returns the non-NetLogo JSON with language, code paths, ODD doc path.
+4. `read_comses_files(uuid, extensions=[".md", ".txt"])` → AI reads the ODD doc.
+5. AI reports: "This model is in Python (Mesa). It was downloaded to models/comses/... and I read the ODD documentation — here is a summary: [...]. I can explain the source code, or, if you explicitly ask, translate it to NetLogo (approximately). Otherwise we stop here."
+6. Flow stops unless user asks to translate.
 
 Total time in warm session for happy path: realistically **30–60 seconds**, dominated by the download and the HTTP round-trips to COMSES.
 
@@ -624,7 +726,8 @@ This is a deliberate design choice: **correct and narrow > broad and shaky.**
 
 ## 11. Open Questions (For Self or Future)
 
-- Should we cache COMSES results on disk between sessions? (Probably no — library updates frequently, and re-fetching 10KB of JSON is cheap.)
+- Should we cache COMSES search results on disk between sessions? (Probably no — library updates frequently, and re-fetching 10KB of JSON is cheap.)
 - Should we fetch from GitHub too, as Serge mentioned? (Phase 2 — different API, different auth for rate limits, different archive format. Ship COMSES first.)
-- Should we parse codemeta.json into a structured resource? (Yes, eventually — would let an AI read authorship, license, versioning without re-hitting the network.)
-- Multi-user safety: if two Claude sessions run `download_comses_model` for the same UUID concurrently, do we race? (Use a lockfile in the model directory, or just don't worry — MCP tools are typically serialized already per session.)
+- Should we parse `codemeta.json` into a structured resource? (Nice-to-have for v2. We already read it at download-time for language detection.)
+- Multi-process cache access: handled in v1 by the "single-process per workspace" assumption documented in Section 4.6. If real multi-process usage emerges, add a `portalocker` or `fcntl` file lock on the cache dir.
+- Handling `.nlogox` vs `.nlogo` format differences in COMSES models that pre-date NetLogo 7: unclear if older NetLogo 6 `.nlogo` files always load cleanly in NetLogo 7. Not a v1 blocker — `open_model` already exists and we use it — but worth watching.
