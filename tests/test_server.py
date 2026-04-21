@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import sys
 from types import SimpleNamespace
 
@@ -57,6 +58,31 @@ async def test_lifespan_gui_mode(monkeypatch):
     async with lifespan(None) as state:
         assert state["netlogo"].kwargs["gui"] is True
         assert state["netlogo"].kwargs["thd"] is False
+
+
+@pytest.mark.asyncio
+async def test_lifespan_redirects_startup_noise_to_stderr(monkeypatch):
+    """Startup chatter from JVM init must not leak onto MCP stdout."""
+
+    def factory(**kwargs):
+        print("JVM startup noise")
+        return FakeNetLogoLink(**kwargs)
+
+    fake_stdout = io.StringIO()
+    fake_stderr = io.StringIO()
+
+    monkeypatch.setitem(sys.modules, "pynetlogo", SimpleNamespace(NetLogoLink=factory))
+    monkeypatch.setattr("netlogo_mcp.server.get_netlogo_home", lambda: "C:/NetLogo")
+    monkeypatch.setattr("netlogo_mcp.server.get_jvm_path", lambda: "C:/Java/jvm.dll")
+    monkeypatch.setattr("netlogo_mcp.server.get_gui_mode", lambda: False)
+    monkeypatch.setattr(sys, "stdout", fake_stdout)
+    monkeypatch.setattr(sys, "stderr", fake_stderr)
+
+    async with lifespan(None):
+        pass
+
+    assert fake_stdout.getvalue() == ""
+    assert "JVM startup noise" in fake_stderr.getvalue()
 
 
 @pytest.mark.asyncio

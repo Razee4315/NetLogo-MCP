@@ -49,10 +49,14 @@ def get_jvm_path() -> str:
 
 
 def get_models_dir() -> Path:
-    """Return the directory where .nlogo model files are stored."""
+    """Return the directory where .nlogo model files are stored.
+
+    By default this follows the process working directory, so models land in
+    the workspace/session from which the MCP server was started.
+    """
     val = os.environ.get(
         "NETLOGO_MODELS_DIR",
-        str(Path(__file__).resolve().parent.parent.parent / "models"),
+        str(Path.cwd() / "models"),
     )
     p = Path(val)
     p.mkdir(parents=True, exist_ok=True)
@@ -90,10 +94,14 @@ def get_comses_cache_dir() -> Path:
 
 
 def get_exports_dir() -> Path:
-    """Return the directory where exported images and worlds are saved."""
+    """Return the directory where exported images and worlds are saved.
+
+    By default this follows the process working directory, so exports land in
+    the workspace/session from which the MCP server was started.
+    """
     val = os.environ.get(
         "NETLOGO_EXPORTS_DIR",
-        str(Path(__file__).resolve().parent.parent.parent / "exports"),
+        str(Path.cwd() / "exports"),
     )
     p = Path(val)
     (p / "views").mkdir(parents=True, exist_ok=True)

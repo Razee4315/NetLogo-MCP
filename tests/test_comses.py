@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import httpx
@@ -363,6 +365,30 @@ def test_safe_extract_happy_path_writes_marker(tmp_path):
     assert (final / comses.COMPLETION_MARKER).is_file()
     assert (final / "code" / "model.nlogo").read_text().startswith("to setup")
     assert comses.is_cache_trusted(final)
+
+
+def test_safe_extract_uses_unique_temp_dirs_per_call(monkeypatch, tmp_path):
+    seen_dirs: list[Path] = []
+
+    class RecordingZipFile(zipfile.ZipFile):
+        def extractall(self, path, members=None, pwd=None):
+            seen_dirs.append(Path(path))
+            return super().extractall(path, members=members, pwd=pwd)
+
+    zip_bytes = _make_zip({"code/model.nlogo": b"to setup\nend\n"})
+    archive = tmp_path / "good.zip"
+    archive.write_bytes(zip_bytes)
+
+    uuids = iter(["a" * 32, "b" * 32])
+    monkeypatch.setattr(comses, "uuid4", lambda: SimpleNamespace(hex=next(uuids)))
+    monkeypatch.setattr(comses.zipfile, "ZipFile", RecordingZipFile)
+
+    comses.safe_extract_zip(archive, tmp_path / "cache" / "x" / "1.0.0", max_bytes=10_000_000)
+    shutil.rmtree(tmp_path / "cache" / "x" / "1.0.0")
+    comses.safe_extract_zip(archive, tmp_path / "cache" / "x" / "1.0.0", max_bytes=10_000_000)
+
+    assert len(seen_dirs) == 2
+    assert seen_dirs[0] != seen_dirs[1]
 
 
 def test_cleans_up_temp_on_extract_failure(tmp_path):

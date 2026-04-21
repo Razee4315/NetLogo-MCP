@@ -1040,11 +1040,11 @@ async def read_comses_files(
 
         # Truncate to a line boundary within `remaining` bytes.
         cut_bytes = raw[:remaining]
-        cut_text = cut_bytes.decode("utf-8", errors="replace")
-        last_nl = cut_text.rfind("\n")
+        last_nl = cut_bytes.rfind(b"\n")
         if last_nl >= 0:
-            cut_text = cut_text[: last_nl + 1]
-        returned_size = len(cut_text.encode("utf-8", errors="replace"))
+            cut_bytes = cut_bytes[: last_nl + 1]
+        cut_text = cut_bytes.decode("utf-8", errors="replace")
+        returned_size = len(cut_bytes)
         files_out[rel] = {
             "content": cut_text,
             "full_size": full_size,

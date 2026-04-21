@@ -24,6 +24,7 @@ import shutil
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from uuid import uuid4
 
 import httpx
 
@@ -435,8 +436,7 @@ def safe_extract_zip(
     tmp_root = tmp_root or final_dir.parent / ".tmp"
     tmp_root.mkdir(parents=True, exist_ok=True)
 
-    # Unique-ish tmp dir; pid keeps it obvious which process owned it.
-    tmp_dir = tmp_root / f"extract-{os.getpid()}-{final_dir.name}"
+    tmp_dir = tmp_root / f"extract-{os.getpid()}-{final_dir.name}-{uuid4().hex}"
     if tmp_dir.exists():
         shutil.rmtree(tmp_dir)
     tmp_dir.mkdir(parents=True)
@@ -724,7 +724,7 @@ async def download_release(
     # Stream to a unique temp file; then safe-extract.
     tmp_root = cache_root / ".tmp"
     tmp_root.mkdir(parents=True, exist_ok=True)
-    tmp_zip = tmp_root / f"{identifier}-{resolved}-{os.getpid()}.zip"
+    tmp_zip = tmp_root / f"{identifier}-{resolved}-{os.getpid()}-{uuid4().hex}.zip"
     try:
         await client.stream_download(
             identifier, resolved, tmp_zip, max_bytes=max_bytes, url=download_url

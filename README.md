@@ -140,7 +140,7 @@ Please set up the NetLogo MCP server for me end-to-end. Follow these steps caref
 
      > "Create a simple predator-prey model with wolves and sheep on a green landscape. Run setup, then run 100 ticks while tracking wolf and sheep counts. Export the view before and after so I can see how the world evolved."
 
-   - Tell me where models and exports are saved (the `models/` and `exports/` folders inside the cloned repo) and that I can browse them with the `list_models` tool.
+   - Tell me where models and exports are saved (by default, the current working directory's `models/` and `exports/` folders) and that I can browse them with the `list_models` tool.
 
 Do not skip any verification step. If something fails, stop and tell me exactly what failed and how to fix it.
 ```
@@ -179,9 +179,9 @@ JAVA_HOME=C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot
 |----------|----------|-------------|
 | `NETLOGO_HOME` | Yes | Path to your NetLogo installation directory |
 | `JAVA_HOME` | No | Path to your JDK directory (auto-detected if not set) |
-| `NETLOGO_MODELS_DIR` | No | Directory for model files (defaults to `./models`) |
+| `NETLOGO_MODELS_DIR` | No | Directory for model files (defaults to the current working directory's `./models`) |
 | `NETLOGO_GUI` | No | `"true"` (default) for live GUI window, `"false"` for headless |
-| `NETLOGO_EXPORTS_DIR` | No | Directory for exported views/worlds (defaults to `./exports`) |
+| `NETLOGO_EXPORTS_DIR` | No | Directory for exported views/worlds (defaults to the current working directory's `./exports`) |
 | `COMSES_MAX_DOWNLOAD_MB` | No | Max CoMSES archive size in MB (default 50). Enforced mid-stream. |
 
 ## Client Setup
