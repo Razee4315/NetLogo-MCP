@@ -37,8 +37,12 @@ By default, a real NetLogo window opens so you can watch your simulations run li
 - Create models from code (AI wraps them in `.nlogox` format)
 - Run simulations, collect tick-by-tick data as markdown tables
 - Export view as PNG — visible inline in chat
+- Export plots, all plots, output logs, and full world snapshots
+- Restore saved simulations with `import_world`
 - Set global variables, sliders, switches
 - Get world state, agent counts, world dimensions, patch grids
+- Search and open bundled models from the local NetLogo Models Library
+- Inspect runtime paths and workspace status with `get_server_status`
 - Built-in NetLogo primitives and programming guide as MCP resources
 - Prompt templates for model analysis, ABM creation, parameter sweeps
 - Live GUI mode for teaching and real-time exploration
@@ -56,9 +60,16 @@ By default, a real NetLogo window opens so you can watch your simulations run li
 | `get_world_state()` | Get tick count, agent counts, world dimensions |
 | `get_patch_data(attribute)` | Get patch data as a 2D grid (for heatmaps) |
 | `export_view()` | Export current view as PNG image |
-| `save_model(name, code)` | Save model to file |
+| `export_plot(plot_name)` | Export one plot widget to CSV |
+| `export_all_plots()` | Export all plot data to CSV |
+| `export_output()` | Export the output area / Command Center log |
 | `export_world()` | Export full world state to CSV |
+| `import_world(path)` | Restore a previously exported world snapshot |
+| `save_model(name, code)` | Save model to file |
 | `list_models()` | List model files in models directory |
+| `search_models_library(query)` | Search the bundled local NetLogo Models Library |
+| `open_library_model(path)` | Open a model from the bundled local library |
+| `get_server_status()` | Show key runtime paths and workspace status |
 | `search_comses(query)` | Search the CoMSES Net model library |
 | `get_comses_model(uuid)` | Fetch metadata + citation text for one COMSES model |
 | `download_comses_model(uuid)` | Safely download + extract a COMSES archive |

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pandas as pd
 import pytest
@@ -14,6 +14,7 @@ class MockNetLogoLink:
     def __init__(self):
         self._model_loaded = False
         self._globals = {}
+        self.commands: list[str] = []
 
     def load_model(self, path: str):
         self._model_loaded = True
@@ -21,6 +22,7 @@ class MockNetLogoLink:
     def command(self, cmd: str):
         if not self._model_loaded:
             raise RuntimeError("No model loaded")
+        self.commands.append(cmd)
         if cmd.startswith("set "):
             parts = cmd.split(None, 2)
             if len(parts) == 3:
@@ -75,4 +77,5 @@ def mock_context(mock_nl):
     """
     ctx = MagicMock()
     ctx.request_context.lifespan_context = {"netlogo": mock_nl}
+    ctx.report_progress = AsyncMock()
     return ctx

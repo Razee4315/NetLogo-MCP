@@ -8,7 +8,7 @@ import shutil
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -203,6 +203,7 @@ async def test_search_comses_tool_returns_compact_json(monkeypatch):
     _patch_client_factory(monkeypatch, handler)
 
     ctx = MagicMock()
+    ctx.report_progress = AsyncMock()
     raw = await tools.search_comses(ctx, query="predator-prey", page=1)
     data = json.loads(raw)
 
@@ -215,6 +216,7 @@ async def test_search_comses_tool_returns_compact_json(monkeypatch):
     assert first["isPeerReviewed"] is True
     assert first["downloads"] == 482
     assert "Jane Author" in first["authors"]
+    assert ctx.report_progress.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -746,6 +748,7 @@ async def test_download_comses_model_tool_returns_expected_shape(monkeypatch, tm
     monkeypatch.setattr(tools, "get_comses_max_download_mb", lambda: 10.0)
 
     ctx = MagicMock()
+    ctx.report_progress = AsyncMock()
     raw = await tools.download_comses_model(
         ctx, identifier=identifier, version="latest"
     )
@@ -762,6 +765,7 @@ async def test_download_comses_model_tool_returns_expected_shape(monkeypatch, tm
     assert data["odd_doc"] == "docs/ODD.md"
     assert data["license"] == "MIT"
     assert "latest" not in data["extracted_path"]
+    assert ctx.report_progress.await_count == 2
 
 
 # ── open_comses_model tool ───────────────────────────────────────────────────
@@ -820,6 +824,7 @@ async def test_open_comses_model_loads_netlogo_when_cached(
     assert data["loaded_netlogo_file"] == "code/Wolf.nlogo"
     assert mock_nl._model_loaded is True
     assert "Pin resolved_version" in data["message"]
+    assert mock_context.report_progress.await_count == 3
 
 
 @pytest.mark.asyncio
@@ -933,6 +938,37 @@ async def test_read_comses_files_respects_byte_cap_and_truncates(
     assert data["any_truncated"] is True
     # Truncation must land on a line boundary.
     assert big_entry["content"].endswith("\n")
+
+
+@pytest.mark.asyncio
+async def test_read_comses_files_keeps_byte_cap_with_invalid_utf8(
+    monkeypatch, tmp_path, mock_context
+):
+    from netlogo_mcp import tools
+
+    identifier = "abc"
+    version = "1.0.0"
+    cache_root = tmp_path / "cache"
+    _prime_cache(
+        cache_root,
+        identifier,
+        version,
+        {"docs/ODD.md": b"\xff\xfe\nvalid\n"},
+    )
+    monkeypatch.setattr(tools, "get_comses_cache_dir", lambda: cache_root)
+
+    raw = await tools.read_comses_files(
+        mock_context,
+        identifier=identifier,
+        version=version,
+        max_total_bytes=2,
+    )
+    data = json.loads(raw)
+
+    entry = data["files"]["docs/ODD.md"]
+    assert entry["truncated"] is True
+    assert entry["returned_size"] <= 2
+    assert data["total_returned_bytes"] <= 2
 
 
 @pytest.mark.asyncio

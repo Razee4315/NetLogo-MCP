@@ -10,15 +10,22 @@ import pytest
 from netlogo_mcp.tools import (
     command,
     create_model,
+    export_all_plots,
+    export_output,
+    export_plot,
     export_view,
     export_world,
     get_patch_data,
+    get_server_status,
     get_world_state,
+    import_world,
     list_models,
+    open_library_model,
     open_model,
     report,
     run_simulation,
     save_model,
+    search_models_library,
     set_parameter,
 )
 
@@ -47,6 +54,17 @@ async def test_open_model_wrong_extension(mock_context, tmp_path):
     bad_file.write_text("not a model")
     with pytest.raises(Exception, match="Not a .nlogo"):
         await open_model(str(bad_file), mock_context)
+
+
+@pytest.mark.asyncio
+async def test_open_model_rejects_relative_traversal(mock_context, tmp_path, monkeypatch):
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    (tmp_path / "outside.nlogo").write_text("code")
+    monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: models_dir)
+
+    with pytest.raises(Exception, match="Invalid model path"):
+        await open_model("../outside.nlogo", mock_context)
 
 
 # ── command ──────────────────────────────────────────────────────────────────
@@ -92,6 +110,7 @@ async def test_run_simulation_success(mock_context, mock_nl):
     result = await run_simulation(10, ["count turtles"], mock_context)
     assert "| tick |" in result
     assert "count turtles" in result
+    assert mock_context.report_progress.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -245,6 +264,74 @@ async def test_list_models_with_files(mock_context, tmp_path, monkeypatch):
     assert names == {"model1", "model2"}
 
 
+@pytest.mark.asyncio
+async def test_search_models_library_filters_results(tmp_path, monkeypatch):
+    library = tmp_path / "models"
+    (library / "Sample Models").mkdir(parents=True)
+    (library / "Code Examples").mkdir(parents=True)
+    (library / "Sample Models" / "Wolf Sheep.nlogo").write_text("code")
+    (library / "Code Examples" / "Ants.nlogo").write_text("code")
+
+    monkeypatch.setattr("netlogo_mcp.tools.get_netlogo_home", lambda: str(tmp_path))
+
+    result = await search_models_library("wolf", limit=10)
+    data = json.loads(result)
+    assert len(data) == 1
+    assert data[0]["relative_path"] == "Sample Models/Wolf Sheep.nlogo"
+
+
+@pytest.mark.asyncio
+async def test_search_models_library_limit_validation(tmp_path, monkeypatch):
+    monkeypatch.setattr("netlogo_mcp.tools.get_netlogo_home", lambda: str(tmp_path))
+    with pytest.raises(Exception, match="limit must be"):
+        await search_models_library(limit=0)
+
+
+@pytest.mark.asyncio
+async def test_open_library_model_success(mock_context, mock_nl, tmp_path, monkeypatch):
+    library = tmp_path / "models" / "Sample Models"
+    library.mkdir(parents=True)
+    (library / "Wolf Sheep.nlogo").write_text("code")
+    monkeypatch.setattr("netlogo_mcp.tools.get_netlogo_home", lambda: str(tmp_path))
+
+    result = await open_library_model("Sample Models/Wolf Sheep.nlogo", mock_context)
+    assert "loaded" in result.lower()
+    assert mock_nl._model_loaded
+
+
+@pytest.mark.asyncio
+async def test_open_library_model_rejects_traversal(
+    mock_context, mock_nl, tmp_path, monkeypatch
+):
+    monkeypatch.setattr("netlogo_mcp.tools.get_netlogo_home", lambda: str(tmp_path))
+    mock_nl._model_loaded = True
+
+    with pytest.raises(Exception, match="Invalid library model path"):
+        await open_library_model("../bad.nlogo", mock_context)
+
+
+@pytest.mark.asyncio
+async def test_get_server_status(mock_context, mock_nl, tmp_path, monkeypatch):
+    mock_nl._model_loaded = True
+    netlogo_home = tmp_path / "NetLogo"
+    (netlogo_home / "models").mkdir(parents=True)
+    models_dir = tmp_path / "session-models"
+    exports_dir = tmp_path / "session-exports"
+    cache_dir = tmp_path / "session-cache"
+
+    monkeypatch.setattr("netlogo_mcp.tools.get_netlogo_home", lambda: str(netlogo_home))
+    monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: models_dir)
+    monkeypatch.setattr("netlogo_mcp.tools.get_exports_dir", lambda: exports_dir)
+    monkeypatch.setattr("netlogo_mcp.tools.get_comses_cache_dir", lambda: cache_dir)
+    monkeypatch.setattr("netlogo_mcp.tools.get_jvm_path", lambda: "C:/Java/jvm.dll")
+    monkeypatch.setattr("netlogo_mcp.tools.get_gui_mode", lambda: True)
+
+    status = json.loads(await get_server_status(mock_context))
+    assert status["model_loaded"] is True
+    assert status["gui_mode"] is True
+    assert status["models_library_exists"] is True
+
+
 # ── export_view (basic check — actual PNG needs real NetLogo) ────────────────
 
 
@@ -305,3 +392,88 @@ async def test_export_world(mock_context, mock_nl):
     result = await export_world(mock_context)
     assert "exported" in result.lower()
     assert ".csv" in result
+
+
+@pytest.mark.asyncio
+async def test_import_world_absolute_path(mock_context, mock_nl, tmp_path):
+    mock_nl._model_loaded = True
+    world_file = tmp_path / "state.csv"
+    world_file.write_text("dummy")
+
+    result = await import_world(str(world_file), mock_context)
+    assert "imported" in result.lower()
+    assert "state.csv" in result
+
+
+@pytest.mark.asyncio
+async def test_import_world_relative_to_exports_dir(
+    mock_context, mock_nl, tmp_path, monkeypatch
+):
+    mock_nl._model_loaded = True
+    monkeypatch.setattr("netlogo_mcp.tools.get_exports_dir", lambda: tmp_path)
+    worlds_dir = tmp_path / "worlds"
+    worlds_dir.mkdir(parents=True, exist_ok=True)
+    (worlds_dir / "saved.csv").write_text("dummy")
+
+    result = await import_world("saved.csv", mock_context)
+    assert "saved.csv" in result
+
+
+@pytest.mark.asyncio
+async def test_import_world_rejects_relative_traversal(
+    mock_context, mock_nl, tmp_path, monkeypatch
+):
+    mock_nl._model_loaded = True
+    monkeypatch.setattr("netlogo_mcp.tools.get_exports_dir", lambda: tmp_path)
+    (tmp_path / "escape.csv").write_text("dummy")
+
+    with pytest.raises(Exception, match="Invalid world path"):
+        await import_world("../escape.csv", mock_context)
+
+
+@pytest.mark.asyncio
+async def test_import_world_not_found(mock_context, mock_nl):
+    mock_nl._model_loaded = True
+    with pytest.raises(Exception, match="not found"):
+        await import_world("missing.csv", mock_context)
+
+
+@pytest.mark.asyncio
+async def test_import_world_requires_csv(mock_context, mock_nl, tmp_path):
+    mock_nl._model_loaded = True
+    world_file = tmp_path / "state.txt"
+    world_file.write_text("dummy")
+
+    with pytest.raises(Exception, match=r"\.csv"):
+        await import_world(str(world_file), mock_context)
+
+
+@pytest.mark.asyncio
+async def test_export_plot(mock_context, mock_nl):
+    mock_nl._model_loaded = True
+    result = await export_plot("Population", mock_context)
+    assert "Population" in result
+    assert ".csv" in result
+
+
+@pytest.mark.asyncio
+async def test_export_plot_rejects_empty_name(mock_context, mock_nl):
+    mock_nl._model_loaded = True
+    with pytest.raises(Exception, match="cannot be empty"):
+        await export_plot("", mock_context)
+
+
+@pytest.mark.asyncio
+async def test_export_all_plots(mock_context, mock_nl):
+    mock_nl._model_loaded = True
+    result = await export_all_plots(mock_context)
+    assert "all plots" in result.lower()
+    assert ".csv" in result
+
+
+@pytest.mark.asyncio
+async def test_export_output(mock_context, mock_nl):
+    mock_nl._model_loaded = True
+    result = await export_output(mock_context)
+    assert "output exported" in result.lower()
+    assert ".txt" in result

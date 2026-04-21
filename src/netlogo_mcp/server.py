@@ -45,6 +45,13 @@ def run_with_stdout_protection(
         return func(*args, **kwargs)
 
 
+@contextmanager
+def workspace_locked() -> Iterator[None]:
+    """Serialize access to the shared NetLogo workspace."""
+    with _workspace_lock:
+        yield
+
+
 def get_or_create_netlogo(lifespan_context: dict[str, Any]) -> Any:
     """Create the shared NetLogo workspace on first use, then reuse it.
 

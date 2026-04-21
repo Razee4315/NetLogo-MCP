@@ -1,4 +1,4 @@
-"""NetLogo MCP tools — 12 tools for controlling NetLogo from Claude."""
+"""NetLogo MCP tools for controlling NetLogo from MCP clients."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
 import pandas as pd
@@ -18,9 +19,12 @@ from .config import (
     get_comses_cache_dir,
     get_comses_max_download_mb,
     get_exports_dir,
+    get_gui_mode,
+    get_jvm_path,
     get_models_dir,
+    get_netlogo_home,
 )
-from .server import mcp
+from .server import mcp, workspace_locked
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -91,6 +95,52 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def _netlogo_models_library_dir() -> Path:
+    """Return the bundled NetLogo Models Library directory."""
+    return Path(get_netlogo_home()) / "models"
+
+
+def _unique_file_path(directory: Path, prefix: str, suffix: str) -> Path:
+    """Build a collision-resistant filename under `directory`."""
+    directory.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    return directory / f"{prefix}_{timestamp}_{uuid4().hex[:8]}{suffix}"
+
+
+async def _report_progress(
+    ctx: Context | None,
+    progress: float,
+    *,
+    total: float = 100.0,
+    message: str | None = None,
+) -> None:
+    """Best-effort progress updates for long-running tools."""
+    if ctx is None:
+        return
+    try:
+        await ctx.report_progress(progress=progress, total=total, message=message)
+    except Exception:
+        return
+
+
+def _resolve_relative_path(base_dir: Path, raw_path: str, *, label: str) -> Path:
+    """Resolve a relative path under `base_dir`, rejecting traversal."""
+    base_dir = base_dir.resolve()
+    candidate = (base_dir / raw_path).resolve()
+    if not candidate.is_relative_to(base_dir):
+        raise ToolError(f"Invalid {label} path.")
+    return candidate
+
+
+def _is_model_loaded(nl: Any) -> bool:
+    """Return True when a model is currently loaded in the workspace."""
+    try:
+        nl.report("max-pxcor")
+    except Exception:
+        return False
+    return True
+
+
 # ── Tools ────────────────────────────────────────────────────────────────────
 
 
@@ -102,19 +152,19 @@ async def open_model(path: str, ctx: Context) -> str:
         path: Path to the .nlogo file. Can be absolute, or relative to the
               configured models directory.
     """
-    nl = _nl(ctx)
     p = Path(path)
-    if not p.is_absolute():
-        p = get_models_dir() / p
-
-    p = p.resolve()
+    if not p.is_absolute() and not path.startswith(("/", "\\")):
+        p = _resolve_relative_path(get_models_dir(), path, label="model")
+    else:
+        p = p.resolve()
     if not p.exists():
         raise ToolError(f"Model file not found: {p}")
-    if p.suffix not in (".nlogo", ".nlogox"):
+    if p.suffix.lower() not in (".nlogo", ".nlogox"):
         raise ToolError(f"Not a .nlogo/.nlogox file: {p}")
 
     try:
-        nl.load_model(str(p).replace("\\", "/"))
+        with workspace_locked():
+            _nl(ctx).load_model(str(p).replace("\\", "/"))
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -128,9 +178,9 @@ async def command(netlogo_command: str, ctx: Context) -> str:
     Args:
         netlogo_command: The NetLogo command string to execute.
     """
-    nl = _require_model(ctx)
     try:
-        nl.command(netlogo_command)
+        with workspace_locked():
+            _require_model(ctx).command(netlogo_command)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
     return f"OK: {netlogo_command}"
@@ -144,9 +194,9 @@ async def report(reporter: str, ctx: Context) -> str:
         reporter: A NetLogo reporter expression (e.g. 'count turtles',
                   'mean [energy] of turtles').
     """
-    nl = _require_model(ctx)
     try:
-        result = nl.report(reporter)
+        with workspace_locked():
+            result = _require_model(ctx).report(reporter)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
     return json.dumps(_json_safe(result))
@@ -173,11 +223,15 @@ async def run_simulation(
         raise ToolError("ticks must be between 1 and 10000.")
     if not reporters:
         raise ToolError("reporters list cannot be empty.")
-
-    nl = _require_model(ctx)
+    await _report_progress(
+        ctx,
+        5,
+        message=f"Running NetLogo for {ticks} ticks with {len(reporters)} reporter(s).",
+    )
 
     try:
-        results = nl.repeat_report(reporters, ticks, go=go_command)
+        with workspace_locked():
+            results = _require_model(ctx).repeat_report(reporters, ticks, go=go_command)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -195,6 +249,11 @@ async def run_simulation(
         vals = " | ".join(str(_json_safe(v)) for v in row)
         lines.append(f"| {tick} | {vals} |")
 
+    await _report_progress(
+        ctx,
+        100,
+        message=f"Simulation complete. Collected {len(df)} row(s) of output.",
+    )
     return "\n".join(lines)
 
 
@@ -206,7 +265,6 @@ async def set_parameter(name: str, value: Any, ctx: Context) -> str:
         name: Name of the global variable (e.g. 'initial-number-sheep').
         value: The value to set. Numbers, strings, booleans accepted.
     """
-    nl = _require_model(ctx)
     # Format the value for NetLogo
     if isinstance(value, bool):
         nl_val = "true" if value else "false"
@@ -218,7 +276,8 @@ async def set_parameter(name: str, value: Any, ctx: Context) -> str:
         nl_val = str(value)
 
     try:
-        nl.command(f"set {name} {nl_val}")
+        with workspace_locked():
+            _require_model(ctx).command(f"set {name} {nl_val}")
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
     return f"OK: {name} = {nl_val}"
@@ -230,24 +289,25 @@ async def get_world_state(ctx: Context) -> str:
 
     Returns JSON with ticks, turtle/patch/link counts, and world bounds.
     """
-    nl = _require_model(ctx)
     try:
-        # ticks returns -1 before reset-ticks is called; guard against errors
-        try:
-            ticks_val = _json_safe(nl.report("ticks"))
-        except Exception:
-            ticks_val = -1  # model loaded but setup not yet run
+        with workspace_locked():
+            nl = _require_model(ctx)
+            # ticks returns -1 before reset-ticks is called; guard against errors
+            try:
+                ticks_val = _json_safe(nl.report("ticks"))
+            except Exception:
+                ticks_val = -1  # model loaded but setup not yet run
 
-        state = {
-            "ticks": ticks_val,
-            "turtle_count": _json_safe(nl.report("count turtles")),
-            "patch_count": _json_safe(nl.report("count patches")),
-            "link_count": _json_safe(nl.report("count links")),
-            "min_pxcor": _json_safe(nl.report("min-pxcor")),
-            "max_pxcor": _json_safe(nl.report("max-pxcor")),
-            "min_pycor": _json_safe(nl.report("min-pycor")),
-            "max_pycor": _json_safe(nl.report("max-pycor")),
-        }
+            state = {
+                "ticks": ticks_val,
+                "turtle_count": _json_safe(nl.report("count turtles")),
+                "patch_count": _json_safe(nl.report("count patches")),
+                "link_count": _json_safe(nl.report("count links")),
+                "min_pxcor": _json_safe(nl.report("min-pxcor")),
+                "max_pxcor": _json_safe(nl.report("max-pxcor")),
+                "min_pycor": _json_safe(nl.report("min-pycor")),
+                "max_pycor": _json_safe(nl.report("max-pycor")),
+            }
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
     return json.dumps(state, indent=2)
@@ -263,9 +323,9 @@ async def get_patch_data(attribute: str, ctx: Context) -> str:
     Returns:
         JSON 2D array (rows = y descending, cols = x ascending).
     """
-    nl = _require_model(ctx)
     try:
-        data = nl.patch_report(attribute)
+        with workspace_locked():
+            data = _require_model(ctx).patch_report(attribute)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -281,14 +341,12 @@ async def export_view(ctx: Context) -> Image:
 
     Returns the image so Claude can see the model visualization.
     """
-    nl = _require_model(ctx)
-
     views_dir = get_exports_dir() / "views"
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    export_path = str(views_dir / f"view_{timestamp}.png").replace("\\", "/")
+    export_path = str(_unique_file_path(views_dir, "view", ".png")).replace("\\", "/")
 
     try:
-        nl.command(f'export-view "{export_path}"')
+        with workspace_locked():
+            _require_model(ctx).command(f'export-view "{export_path}"')
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -304,20 +362,18 @@ async def create_model(code: str, ctx: Context) -> str:
               setup, go, etc.) — the .nlogox envelope will be added automatically.
               Or provide a full .nlogox XML file.
     """
-    nl = _nl(ctx)
-
     # If user provided raw procedures (not XML), wrap in .nlogox envelope
     if not code.strip().startswith("<?xml") and "<model" not in code[:200]:
         code = _wrap_nlogox(code)
 
     # Write to models directory and load
     models_dir = get_models_dir()
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_path = models_dir / f"_created_{timestamp}.nlogox"
+    model_path = _unique_file_path(models_dir, "_created", ".nlogox")
     model_path.write_text(code, encoding="utf-8")
 
     try:
-        nl.load_model(str(model_path).replace("\\", "/"))
+        with workspace_locked():
+            _nl(ctx).load_model(str(model_path).replace("\\", "/"))
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -434,6 +490,104 @@ async def save_model(name: str, code: str, ctx: Context) -> str:
 
 
 @mcp.tool()
+async def search_models_library(query: str = "", limit: int = 20) -> str:
+    """Search the bundled NetLogo Models Library from the local installation.
+
+    Args:
+        query: Case-insensitive text to match against filenames and folders.
+               Leave empty to browse the library.
+        limit: Maximum number of results to return.
+
+    Returns:
+        A JSON array of matching models with relative and absolute paths.
+    """
+    if limit < 1 or limit > 200:
+        raise ToolError("limit must be between 1 and 200.")
+
+    library_dir = _netlogo_models_library_dir()
+    if not library_dir.is_dir():
+        raise ToolError(f"NetLogo models library not found: {library_dir}")
+
+    files = sorted(
+        list(library_dir.rglob("*.nlogo")) + list(library_dir.rglob("*.nlogox"))
+    )
+    needle = query.strip().lower()
+    results = []
+    for f in files:
+        rel = f.relative_to(library_dir).as_posix()
+        haystack = f"{f.stem} {rel}".lower()
+        if needle and needle not in haystack:
+            continue
+        results.append(
+            {
+                "name": f.stem,
+                "relative_path": rel,
+                "path": str(f),
+                "size_kb": round(f.stat().st_size / 1024, 1),
+            }
+        )
+        if len(results) >= limit:
+            break
+
+    return json.dumps(results, indent=2)
+
+
+@mcp.tool()
+async def open_library_model(path: str, ctx: Context) -> str:
+    """Open a model from the bundled NetLogo Models Library.
+
+    Args:
+        path: Relative path under the local NetLogo models directory.
+
+    Returns:
+        Confirmation message indicating the loaded model.
+    """
+    if not path.strip():
+        raise ToolError("path cannot be empty.")
+    if ".." in path or path.startswith(("/", "\\")):
+        raise ToolError("Invalid library model path.")
+
+    library_dir = _netlogo_models_library_dir().resolve()
+    model_path = (library_dir / path).resolve()
+
+    if not model_path.is_relative_to(library_dir):
+        raise ToolError("Invalid library model path.")
+    if not model_path.exists():
+        raise ToolError(f"Library model not found: {path}")
+    if model_path.suffix.lower() not in (".nlogo", ".nlogox"):
+        raise ToolError(f"Library model must be .nlogo/.nlogox: {path}")
+
+    try:
+        with workspace_locked():
+            _nl(ctx).load_model(str(model_path).replace("\\", "/"))
+    except Exception as e:
+        raise _wrap_netlogo_error(e) from e
+
+    return f"Library model loaded: {model_path.name}"
+
+
+@mcp.tool()
+async def get_server_status(ctx: Context) -> str:
+    """Return runtime paths and shared-workspace status for debugging."""
+    with workspace_locked():
+        model_loaded = _is_model_loaded(_nl(ctx))
+
+    library_dir = _netlogo_models_library_dir()
+    status = {
+        "netlogo_home": get_netlogo_home(),
+        "jvm_path": get_jvm_path() or None,
+        "gui_mode": get_gui_mode(),
+        "models_dir": str(get_models_dir()),
+        "exports_dir": str(get_exports_dir()),
+        "comses_cache_dir": str(get_comses_cache_dir()),
+        "models_library_dir": str(library_dir),
+        "models_library_exists": library_dir.is_dir(),
+        "model_loaded": model_loaded,
+    }
+    return json.dumps(status, indent=2)
+
+
+@mcp.tool()
 async def export_world(ctx: Context) -> str:
     """Export the full world state to a CSV file.
 
@@ -442,18 +596,122 @@ async def export_world(ctx: Context) -> str:
 
     Returns the path to the exported CSV file.
     """
-    nl = _require_model(ctx)
-
     worlds_dir = get_exports_dir() / "worlds"
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    export_path = str(worlds_dir / f"world_{timestamp}.csv").replace("\\", "/")
+    export_path = str(_unique_file_path(worlds_dir, "world", ".csv")).replace(
+        "\\", "/"
+    )
 
     try:
-        nl.command(f'export-world "{export_path}"')
+        with workspace_locked():
+            _require_model(ctx).command(f'export-world "{export_path}"')
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
     return f"World exported to {export_path}"
+
+
+@mcp.tool()
+async def import_world(path: str, ctx: Context) -> str:
+    """Import a previously exported NetLogo world CSV file.
+
+    Args:
+        path: Path to the exported world CSV. Can be absolute, or relative to
+              the configured exports/worlds directory.
+
+    Returns:
+        Confirmation message indicating the imported file.
+    """
+    if not path.strip():
+        raise ToolError("path cannot be empty.")
+
+    p = Path(path)
+    if not p.is_absolute() and not path.startswith(("/", "\\")):
+        p = _resolve_relative_path(get_exports_dir() / "worlds", path, label="world")
+    else:
+        p = p.resolve()
+    if not p.exists():
+        raise ToolError(f"World file not found: {p}")
+    if p.suffix.lower() != ".csv":
+        raise ToolError(f"World import expects a .csv file: {p}")
+
+    path_str = str(p).replace("\\", "/")
+    try:
+        with workspace_locked():
+            _require_model(ctx).command(f'import-world "{path_str}"')
+    except Exception as e:
+        raise _wrap_netlogo_error(e) from e
+
+    return f"World imported from {p}"
+
+
+@mcp.tool()
+async def export_plot(plot_name: str, ctx: Context) -> str:
+    """Export a single NetLogo plot to CSV.
+
+    Args:
+        plot_name: Exact name of the plot widget to export.
+
+    Returns:
+        The path to the exported CSV file.
+    """
+    if not plot_name.strip():
+        raise ToolError("plot_name cannot be empty.")
+
+    plots_dir = get_exports_dir() / "plots"
+    export_path = str(_unique_file_path(plots_dir, "plot", ".csv")).replace("\\", "/")
+
+    escaped_plot_name = plot_name.replace("\\", "\\\\").replace('"', '\\"')
+    try:
+        with workspace_locked():
+            _require_model(ctx).command(
+                f'export-plot "{escaped_plot_name}" "{export_path}"'
+            )
+    except Exception as e:
+        raise _wrap_netlogo_error(e) from e
+
+    return f'Plot "{plot_name}" exported to {export_path}'
+
+
+@mcp.tool()
+async def export_all_plots(ctx: Context) -> str:
+    """Export all NetLogo plots to a single CSV file.
+
+    Returns:
+        The path to the exported CSV file.
+    """
+    plots_dir = get_exports_dir() / "plots"
+    export_path = str(_unique_file_path(plots_dir, "plots", ".csv")).replace(
+        "\\", "/"
+    )
+
+    try:
+        with workspace_locked():
+            _require_model(ctx).command(f'export-all-plots "{export_path}"')
+    except Exception as e:
+        raise _wrap_netlogo_error(e) from e
+
+    return f"All plots exported to {export_path}"
+
+
+@mcp.tool()
+async def export_output(ctx: Context) -> str:
+    """Export the output area (or Command Center output) to a text file.
+
+    Returns:
+        The path to the exported text file.
+    """
+    outputs_dir = get_exports_dir() / "outputs"
+    export_path = str(_unique_file_path(outputs_dir, "output", ".txt")).replace(
+        "\\", "/"
+    )
+
+    try:
+        with workspace_locked():
+            _require_model(ctx).command(f'export-output "{export_path}"')
+    except Exception as e:
+        raise _wrap_netlogo_error(e) from e
+
+    return f"Output exported to {export_path}"
 
 
 # ── CoMSES Net integration ──────────────────────────────────────────────────
@@ -591,6 +849,11 @@ async def search_comses(
     """
     if page < 1:
         raise ToolError("page must be >= 1")
+    await _report_progress(
+        ctx,
+        10,
+        message=f"Searching CoMSES for {query!r} (page {page}).",
+    )
     try:
         async with _comses.ComsesClient() as client:
             raw = await client.search(query=query, page=page)
@@ -604,6 +867,11 @@ async def search_comses(
         "numResults": raw.get("numResults", len(raw.get("results") or [])),
         "results": [_compact_search_result(e) for e in (raw.get("results") or [])],
     }
+    await _report_progress(
+        ctx,
+        100,
+        message=f"CoMSES search complete with {compact['numResults']} result(s).",
+    )
     return json.dumps(compact, indent=2)
 
 
@@ -676,6 +944,7 @@ async def get_comses_model(ctx: Context, identifier: str) -> str:
     """
     if not identifier:
         raise ToolError("identifier is required")
+    await _report_progress(ctx, 10, message="Fetching CoMSES model metadata.")
     try:
         async with _comses.ComsesClient() as client:
             data = await client.get_codebase(identifier)
@@ -701,6 +970,7 @@ async def get_comses_model(ctx: Context, identifier: str) -> str:
     except _comses.ComsesError as e:
         raise ToolError(f"COMSES get_comses_model failed: {e}") from e
 
+    await _report_progress(ctx, 100, message="CoMSES metadata ready.")
     return json.dumps(_compact_codebase_detail(data), indent=2)
 
 
@@ -767,6 +1037,7 @@ async def download_comses_model(
     cap_mb = max_mb if max_mb and max_mb > 0 else get_comses_max_download_mb()
     max_bytes = int(cap_mb * 1024 * 1024)
     cache_root = get_comses_cache_dir()
+    await _report_progress(ctx, 10, message="Downloading CoMSES archive metadata.")
     try:
         async with _comses.ComsesClient() as client:
             outcome = await _comses.download_release(
@@ -781,6 +1052,15 @@ async def download_comses_model(
     except _comses.ComsesError as e:
         raise ToolError(f"COMSES download failed: {e}") from e
 
+    await _report_progress(
+        ctx,
+        100,
+        message=(
+            "CoMSES archive ready from cache."
+            if outcome.cached
+            else "CoMSES archive downloaded and extracted."
+        ),
+    )
     return json.dumps(_outcome_to_payload(outcome), indent=2)
 
 
@@ -833,6 +1113,7 @@ async def open_comses_model(
     cap_mb = max_mb if max_mb and max_mb > 0 else get_comses_max_download_mb()
     max_bytes = int(cap_mb * 1024 * 1024)
     cache_root = get_comses_cache_dir()
+    await _report_progress(ctx, 10, message="Preparing CoMSES model for opening.")
     try:
         async with _comses.ComsesClient() as client:
             outcome = await _comses.download_release(
@@ -860,6 +1141,7 @@ async def open_comses_model(
             "is possible but not automatic — ask explicitly if that's what "
             "you want."
         )
+        await _report_progress(ctx, 100, message="CoMSES model cached for inspection.")
         return json.dumps(payload, indent=2)
 
     if outcome.selected_netlogo_file is None:
@@ -868,14 +1150,20 @@ async def open_comses_model(
             "Language looks like NetLogo but no .nlogo / .nlogox file was "
             "found in the archive. Use read_comses_files to investigate."
         )
+        await _report_progress(
+            ctx,
+            100,
+            message="CoMSES archive is ready, but no runnable NetLogo file was found.",
+        )
         return json.dumps(payload, indent=2)
 
     # Load into the NetLogo workspace using the forward-slash path form that
     # pynetlogo expects on Windows.
-    nl = _nl(ctx)
     path_str = str(outcome.selected_netlogo_file.resolve()).replace("\\", "/")
+    await _report_progress(ctx, 75, message="Loading COMSES model into NetLogo.")
     try:
-        nl.load_model(path_str)
+        with workspace_locked():
+            _nl(ctx).load_model(path_str)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -886,6 +1174,7 @@ async def open_comses_model(
         f"Pin resolved_version={outcome.resolved_version!r} for any "
         "follow-up read_comses_files calls."
     )
+    await _report_progress(ctx, 100, message="COMSES model loaded into NetLogo.")
     return json.dumps(payload, indent=2)
 
 
@@ -985,6 +1274,7 @@ async def read_comses_files(
     cache_root = get_comses_cache_dir()
 
     # Resolve version (may hit network only if "latest" was passed).
+    await _report_progress(ctx, 10, message="Resolving CoMSES version for file read.")
     try:
         async with _comses.ComsesClient() as client:
             resolved = await client.resolve_latest(identifier, version)
@@ -1012,6 +1302,11 @@ async def read_comses_files(
             continue
         selected.append((_priority_rank(rel), rel, p))
     selected.sort(key=lambda tup: (tup[0], tup[1]))
+    await _report_progress(
+        ctx,
+        50,
+        message=f"Reading {len(selected)} matching file(s) from cached CoMSES model.",
+    )
 
     files_out: dict[str, dict[str, object]] = {}
     remaining = max_total_bytes
@@ -1040,11 +1335,11 @@ async def read_comses_files(
 
         # Truncate to a line boundary within `remaining` bytes.
         cut_bytes = raw[:remaining]
-        cut_text = cut_bytes.decode("utf-8", errors="replace")
-        last_nl = cut_text.rfind("\n")
+        last_nl = cut_bytes.rfind(b"\n")
         if last_nl >= 0:
-            cut_text = cut_text[: last_nl + 1]
-        returned_size = len(cut_text.encode("utf-8", errors="replace"))
+            cut_bytes = cut_bytes[: last_nl + 1]
+        cut_text = cut_bytes.decode("utf-8", errors="replace")
+        returned_size = len(cut_bytes)
         files_out[rel] = {
             "content": cut_text,
             "full_size": full_size,
@@ -1055,6 +1350,11 @@ async def read_comses_files(
         total_returned += returned_size
         remaining = 0
 
+    await _report_progress(
+        ctx,
+        100,
+        message=f"Returned {len(files_out)} file(s) from cached CoMSES model.",
+    )
     return json.dumps(
         {
             "resolved_version": resolved,
