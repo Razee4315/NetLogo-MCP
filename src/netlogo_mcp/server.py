@@ -108,8 +108,6 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
     The JVM starts here (30-60s) so it doesn't block the asyncio
     event loop during tool calls. This matches the working gui branch.
     """
-    import pynetlogo
-
     nl_home = get_netlogo_home()
     jvm_path = get_jvm_path()
     gui = get_gui_mode()
@@ -122,12 +120,15 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
         nl_home,
     )
 
-    nl = pynetlogo.NetLogoLink(
-        netlogo_home=nl_home,
-        gui=gui,
-        thd=False,
-        jvm_path=jvm_path,
-    )
+    with protect_stdout():
+        import pynetlogo
+
+        nl = pynetlogo.NetLogoLink(
+            netlogo_home=nl_home,
+            gui=gui,
+            thd=False,
+            jvm_path=jvm_path,
+        )
     logger.info("NetLogo workspace ready (%s) — all tools available", mode_str)
 
     try:
@@ -142,8 +143,8 @@ mcp = FastMCP(
         "This server lets you create, run, and analyze NetLogo agent-based "
         "models. Use open_model or create_model first, then command/report "
         "to interact. Consult netlogo://docs/primitives for syntax help."
-        "\n\nNote: the first tool call may take 30-60 seconds while the "
-        "Java Virtual Machine starts. Subsequent calls are instant."
+        "\n\nNote: server startup may take 30-60 seconds while the "
+        "Java Virtual Machine starts. After startup, tool calls are instant."
     ),
     lifespan=lifespan,
 )
