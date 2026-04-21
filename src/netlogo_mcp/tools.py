@@ -37,24 +37,42 @@ def _nl(ctx: Context):  # type: ignore[type-arg]
         raise ToolError("NetLogo workspace is not initialized.") from exc
 
 
+def _workspace_model_path(nl: Any) -> str | None:
+    """Return the current loaded-model path if the workspace exposes one."""
+    model_path = getattr(nl, "model_path", None)
+    if isinstance(model_path, str):
+        model_path = model_path.strip()
+        return model_path or None
+
+    link = getattr(nl, "link", None)
+    if link is None:
+        return None
+
+    try:
+        field = link.getClass().getDeclaredField("workspace")
+        field.setAccessible(True)
+        workspace = field.get(link)
+        if workspace is None:
+            return None
+        path = workspace.getModelPath()
+        if path is None:
+            return None
+        path_str = str(path).strip()
+        return path_str or None
+    except Exception:
+        return None
+
+
 def _require_model(ctx: Context):
     """Raise ToolError if no model is currently loaded."""
     nl = _nl(ctx)
+    if not _is_model_loaded(nl):
+        raise ToolError("No model is loaded. Use open_model or create_model first.")
     try:
-        # Use max-pxcor as a model-loaded check — it always works,
-        # even before reset-ticks (unlike "ticks" which errors pre-setup).
-        # Call directly (no wrapper) to avoid stdout/thread interference.
+        # Verify the workspace is still responsive after confirming a model path.
         nl.report("max-pxcor")
     except Exception as exc:
         msg = str(exc)
-        if (
-            "model" in msg.lower()
-            or "observer" in msg.lower()
-            or "Nothing has been loaded" in msg
-        ):
-            raise ToolError(
-                "No model is loaded. Use open_model or create_model first."
-            ) from exc
         raise ToolError(
             f"Model check failed: {msg}\n\nTry using open_model or create_model first."
         ) from exc
@@ -134,11 +152,27 @@ def _resolve_relative_path(base_dir: Path, raw_path: str, *, label: str) -> Path
 
 def _is_model_loaded(nl: Any) -> bool:
     """Return True when a model is currently loaded in the workspace."""
+    if _workspace_model_path(nl):
+        return True
+    if hasattr(nl, "_model_loaded"):
+        return bool(nl._model_loaded)
     try:
         nl.report("max-pxcor")
     except Exception:
         return False
     return True
+
+
+def _safe_tick_value(nl: Any, fallback: int) -> int:
+    """Return the current tick count, or a fallback if NetLogo has not started it."""
+    try:
+        tick_val = _json_safe(nl.report("ticks"))
+    except Exception:
+        return fallback
+    try:
+        return int(tick_val)
+    except (TypeError, ValueError):
+        return fallback
 
 
 # ── Tools ────────────────────────────────────────────────────────────────────
@@ -231,16 +265,37 @@ async def run_simulation(
 
     try:
         with workspace_locked():
-            results = _require_model(ctx).repeat_report(reporters, ticks, go=go_command)
+            nl = _require_model(ctx)
+            rows: list[tuple[int, dict[str, Any]]] = []
+            current_tick = _safe_tick_value(nl, 0)
+            rows.append(
+                (
+                    current_tick,
+                    {reporter: _json_safe(nl.report(reporter)) for reporter in reporters},
+                )
+            )
+
+            for _step in range(1, ticks + 1):
+                nl.command(go_command)
+                current_tick = _safe_tick_value(nl, current_tick + 1)
+                rows.append(
+                    (
+                        current_tick,
+                        {
+                            reporter: _json_safe(nl.report(reporter))
+                            for reporter in reporters
+                        },
+                    )
+                )
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
-    # results is a DataFrame with reporters as columns, ticks as index
-    if isinstance(results, pd.DataFrame):
-        df = results
-    else:
-        # Single reporter returns a Series
-        df = pd.DataFrame({reporters[0]: results})
+    df = pd.DataFrame(
+        [values for _, values in rows],
+        index=[tick for tick, _ in rows],
+        columns=reporters,
+    )
+    df.index.name = "tick"
 
     # Build markdown table
     lines = ["| tick | " + " | ".join(df.columns) + " |"]
@@ -346,7 +401,9 @@ async def export_view(ctx: Context) -> Image:
 
     try:
         with workspace_locked():
-            _require_model(ctx).command(f'export-view "{export_path}"')
+            nl = _require_model(ctx)
+            nl.command("display")
+            nl.command(f'export-view "{export_path}"')
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -570,7 +627,9 @@ async def open_library_model(path: str, ctx: Context) -> str:
 async def get_server_status(ctx: Context) -> str:
     """Return runtime paths and shared-workspace status for debugging."""
     with workspace_locked():
-        model_loaded = _is_model_loaded(_nl(ctx))
+        nl = _nl(ctx)
+        model_loaded = _is_model_loaded(nl)
+        model_path = _workspace_model_path(nl)
 
     library_dir = _netlogo_models_library_dir()
     status = {
@@ -583,6 +642,7 @@ async def get_server_status(ctx: Context) -> str:
         "models_library_dir": str(library_dir),
         "models_library_exists": library_dir.is_dir(),
         "model_loaded": model_loaded,
+        "model_path": model_path,
     }
     return json.dumps(status, indent=2)
 

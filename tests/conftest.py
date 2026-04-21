@@ -13,16 +13,24 @@ class MockNetLogoLink:
 
     def __init__(self):
         self._model_loaded = False
+        self.model_path: str | None = None
         self._globals = {}
         self.commands: list[str] = []
+        self._ticks = 0
 
     def load_model(self, path: str):
         self._model_loaded = True
+        self.model_path = path
+        self._ticks = 0
 
     def command(self, cmd: str):
         if not self._model_loaded:
             raise RuntimeError("No model loaded")
         self.commands.append(cmd)
+        if cmd == "setup":
+            self._ticks = 0
+        if cmd == "go":
+            self._ticks += 1
         if cmd.startswith("set "):
             parts = cmd.split(None, 2)
             if len(parts) == 3:
@@ -32,8 +40,10 @@ class MockNetLogoLink:
         if not self._model_loaded:
             raise RuntimeError("No model loaded")
         mapping = {
-            "ticks": 0,
+            "ticks": self._ticks,
             "count turtles": 100,
+            "count sheep": 100 + self._ticks,
+            "count wolves": 50 + self._ticks,
             "count patches": 1089,
             "count links": 0,
             "min-pxcor": -16,
@@ -46,12 +56,6 @@ class MockNetLogoLink:
         if reporter in self._globals:
             return self._globals[reporter]
         return 42
-
-    def repeat_report(self, reporters, ticks, go="go", include_t0=True):
-        if not self._model_loaded:
-            raise RuntimeError("No model loaded")
-        data = {r: list(range(ticks)) for r in reporters}
-        return pd.DataFrame(data)
 
     def patch_report(self, attribute: str):
         if not self._model_loaded:

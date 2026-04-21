@@ -8,6 +8,7 @@ import pytest
 
 # We test the tool functions directly — they're async, so use pytest-asyncio.
 from netlogo_mcp.tools import (
+    _workspace_model_path,
     command,
     create_model,
     export_all_plots,
@@ -110,7 +111,19 @@ async def test_run_simulation_success(mock_context, mock_nl):
     result = await run_simulation(10, ["count turtles"], mock_context)
     assert "| tick |" in result
     assert "count turtles" in result
+    assert "| 10 |" in result
+    assert mock_nl.commands.count("go") == 10
     assert mock_context.report_progress.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_run_simulation_multiple_reporters(mock_context, mock_nl):
+    mock_nl._model_loaded = True
+    result = await run_simulation(3, ["count sheep", "count wolves"], mock_context)
+    assert "count sheep" in result
+    assert "count wolves" in result
+    assert "| 0 |" in result
+    assert "| 3 |" in result
 
 
 @pytest.mark.asyncio
@@ -312,12 +325,12 @@ async def test_open_library_model_rejects_traversal(
 
 @pytest.mark.asyncio
 async def test_get_server_status(mock_context, mock_nl, tmp_path, monkeypatch):
-    mock_nl._model_loaded = True
     netlogo_home = tmp_path / "NetLogo"
     (netlogo_home / "models").mkdir(parents=True)
     models_dir = tmp_path / "session-models"
     exports_dir = tmp_path / "session-exports"
     cache_dir = tmp_path / "session-cache"
+    mock_nl.load_model(str(models_dir / "loaded.nlogox"))
 
     monkeypatch.setattr("netlogo_mcp.tools.get_netlogo_home", lambda: str(netlogo_home))
     monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: models_dir)
@@ -330,6 +343,32 @@ async def test_get_server_status(mock_context, mock_nl, tmp_path, monkeypatch):
     assert status["model_loaded"] is True
     assert status["gui_mode"] is True
     assert status["models_library_exists"] is True
+    assert status["model_path"].endswith("loaded.nlogox")
+
+
+def test_workspace_model_path_reads_java_workspace_model_path():
+    class FakeWorkspace:
+        def getModelPath(self):
+            return "C:/models/wolf.nlogox"
+
+    class FakeField:
+        def setAccessible(self, _value):
+            return None
+
+        def get(self, _link):
+            return FakeWorkspace()
+
+    class FakeClass:
+        def getDeclaredField(self, name):
+            assert name == "workspace"
+            return FakeField()
+
+    class FakeLink:
+        def getClass(self):
+            return FakeClass()
+
+    fake_nl = type("FakeNL", (), {"link": FakeLink()})()
+    assert _workspace_model_path(fake_nl) == "C:/models/wolf.nlogox"
 
 
 # ── export_view (basic check — actual PNG needs real NetLogo) ────────────────
