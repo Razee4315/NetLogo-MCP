@@ -383,9 +383,13 @@ def test_safe_extract_uses_unique_temp_dirs_per_call(monkeypatch, tmp_path):
     monkeypatch.setattr(comses, "uuid4", lambda: SimpleNamespace(hex=next(uuids)))
     monkeypatch.setattr(comses.zipfile, "ZipFile", RecordingZipFile)
 
-    comses.safe_extract_zip(archive, tmp_path / "cache" / "x" / "1.0.0", max_bytes=10_000_000)
+    comses.safe_extract_zip(
+        archive, tmp_path / "cache" / "x" / "1.0.0", max_bytes=10_000_000
+    )
     shutil.rmtree(tmp_path / "cache" / "x" / "1.0.0")
-    comses.safe_extract_zip(archive, tmp_path / "cache" / "x" / "1.0.0", max_bytes=10_000_000)
+    comses.safe_extract_zip(
+        archive, tmp_path / "cache" / "x" / "1.0.0", max_bytes=10_000_000
+    )
 
     assert len(seen_dirs) == 2
     assert seen_dirs[0] != seen_dirs[1]
