@@ -190,6 +190,8 @@ async def run_simulation(
     reporters: list[str],
     ctx: Context,
     go_command: str = "go",
+    summary_only: bool = False,
+    max_rows: int = 0,
 ) -> str:
     """Run the simulation for N ticks and collect reporter data each tick.
 
@@ -197,14 +199,25 @@ async def run_simulation(
         ticks: Number of ticks to run (1-10000).
         reporters: List of NetLogo reporter expressions to collect each tick.
         go_command: The go command to use (default: "go").
+        summary_only: If True, return only min/mean/max/std/final per
+            reporter — much smaller than the full per-tick table. Use this
+            when you don't need the time series, e.g. parameter sweeps that
+            only care about the final state.
+        max_rows: If > 0 and the run produces more rows than this, the
+            output is decimated by evenly-spaced sampling (always keeps
+            the final tick). Use to keep a long run's output below the
+            client's context budget without losing the shape.
 
     Returns:
-        A markdown table of tick-by-tick data.
+        A markdown table — full per-tick data by default, decimated if
+        `max_rows` set, or a compact summary table if `summary_only=True`.
     """
     if ticks < 1 or ticks > 10000:
         raise ToolError("ticks must be between 1 and 10000.")
     if not reporters:
         raise ToolError("reporters list cannot be empty.")
+    if max_rows < 0:
+        raise ToolError("max_rows must be >= 0 (0 = no cap).")
 
     nl = _require_model(ctx)
 
@@ -213,20 +226,56 @@ async def run_simulation(
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
-    # results is a DataFrame with reporters as columns, ticks as index
     if isinstance(results, pd.DataFrame):
         df = results
     else:
-        # Single reporter returns a Series
         df = pd.DataFrame({reporters[0]: results})
 
-    # Build markdown table
+    if summary_only:
+        return _summary_table(df)
+
+    # Decimate if requested.
+    if max_rows > 0 and len(df) > max_rows:
+        df = _decimate_keep_last(df, max_rows)
+
     lines = ["| tick | " + " | ".join(df.columns) + " |"]
     lines.append("| --- | " + " | ".join(["---"] * len(df.columns)) + " |")
     for tick, row in df.iterrows():
         vals = " | ".join(str(_json_safe(v)) for v in row)
         lines.append(f"| {tick} | {vals} |")
 
+    return "\n".join(lines)
+
+
+def _decimate_keep_last(df: pd.DataFrame, max_rows: int) -> pd.DataFrame:
+    """Return at most `max_rows` evenly-spaced rows; always include the last."""
+    if len(df) <= max_rows:
+        return df
+    step = max(1, len(df) // max_rows)
+    sampled = df.iloc[::step]
+    if df.index[-1] not in sampled.index:
+        sampled = pd.concat([sampled, df.iloc[[-1]]])
+    return sampled
+
+
+def _summary_table(df: pd.DataFrame) -> str:
+    """Compact min/mean/max/std/final markdown table for a per-tick DataFrame."""
+    if df.empty:
+        return "(no data — model produced 0 rows)"
+    lines = ["| reporter | min | mean | max | std | final |"]
+    lines.append("| --- | --- | --- | --- | --- | --- |")
+    for col in df.columns:
+        series = pd.to_numeric(df[col], errors="coerce")
+        if series.notna().any():
+            mn = float(series.min())
+            mx = float(series.max())
+            mean = float(series.mean())
+            std = float(series.std(ddof=1)) if len(series.dropna()) > 1 else 0.0
+            final = _json_safe(df[col].iloc[-1])
+            lines.append(f"| {col} | {mn:g} | {mean:g} | {mx:g} | {std:g} | {final} |")
+        else:
+            # Non-numeric reporter — just show first/last
+            lines.append(f"| {col} | — | — | — | — | {_json_safe(df[col].iloc[-1])} |")
     return "\n".join(lines)
 
 
@@ -286,14 +335,24 @@ async def get_world_state(ctx: Context) -> str:
 
 
 @mcp.tool()
-async def get_patch_data(attribute: str, ctx: Context) -> str:
+async def get_patch_data(
+    attribute: str,
+    ctx: Context,
+    summary_only: bool = False,
+) -> str:
     """Get patch data as a 2D grid (useful for heatmaps / spatial analysis).
 
     Args:
         attribute: The patch variable to report (e.g. 'pcolor', 'grass').
+        summary_only: If True, return shape + min/mean/max/std/unique-count
+            instead of the full 2D grid. For a 100×100 world this trims
+            ~10k cells of JSON to ~6 numbers — useful when you just want
+            to know "is this attribute distributed widely?" without
+            enumerating every patch.
 
     Returns:
-        JSON 2D array (rows = y descending, cols = x ascending).
+        JSON 2D array (rows = y descending, cols = x ascending) by default,
+        or a compact summary dict if `summary_only=True`.
     """
     nl = _require_model(ctx)
     try:
@@ -301,10 +360,35 @@ async def get_patch_data(attribute: str, ctx: Context) -> str:
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
-    # patch_report returns a DataFrame indexed by (pxcor, pycor)
-    grid = data.values.tolist() if isinstance(data, pd.DataFrame) else _json_safe(data)
+    grid = data.values if isinstance(data, pd.DataFrame) else data
 
-    return json.dumps(grid)
+    if summary_only:
+        flat = (
+            pd.Series(grid.flatten()) if hasattr(grid, "flatten") else pd.Series(grid)
+        )
+        numeric = pd.to_numeric(flat, errors="coerce").dropna()
+        rows = len(grid) if hasattr(grid, "__len__") else None
+        cols = len(grid[0]) if rows and hasattr(grid[0], "__len__") else None
+        summary: dict[str, Any] = {
+            "attribute": attribute,
+            "rows": rows,
+            "cols": cols,
+            "total_cells": int(len(flat)),
+            "unique_values": int(flat.nunique()),
+        }
+        if not numeric.empty:
+            summary.update(
+                {
+                    "min": float(numeric.min()),
+                    "max": float(numeric.max()),
+                    "mean": float(numeric.mean()),
+                    "std": float(numeric.std(ddof=1)) if len(numeric) > 1 else 0.0,
+                }
+            )
+        return json.dumps(summary, indent=2)
+
+    grid_list = grid.tolist() if hasattr(grid, "tolist") else _json_safe(grid)
+    return json.dumps(grid_list)
 
 
 @mcp.tool()

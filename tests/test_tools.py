@@ -108,6 +108,43 @@ async def test_run_simulation_empty_reporters(mock_context, mock_nl):
         await run_simulation(10, [], mock_context)
 
 
+@pytest.mark.asyncio
+async def test_run_simulation_summary_only_returns_compact_table(mock_context, mock_nl):
+    """summary_only=True returns one row per reporter, not one per tick."""
+    mock_nl._model_loaded = True
+    result = await run_simulation(
+        100, ["count turtles", "ticks"], mock_context, summary_only=True
+    )
+    # One header line + one separator line + one row per reporter
+    lines = result.split("\n")
+    assert lines[0].startswith("| reporter | min | mean | max | std | final |")
+    # Two reporters → exactly 2 data rows
+    data_rows = [ln for ln in lines if ln.startswith("|") and "---" not in ln][1:]
+    assert len(data_rows) == 2
+    # Should NOT contain a per-tick "tick" header
+    assert "| tick |" not in result
+
+
+@pytest.mark.asyncio
+async def test_run_simulation_max_rows_decimates(mock_context, mock_nl):
+    """max_rows shrinks long output but always keeps the last tick."""
+    mock_nl._model_loaded = True
+    result = await run_simulation(100, ["count turtles"], mock_context, max_rows=10)
+    # Header + separator + ≤ 10 data rows, last row's tick should be 99
+    lines = [ln for ln in result.split("\n") if ln.startswith("|")]
+    data = [ln for ln in lines if "---" not in ln][1:]
+    assert len(data) <= 11  # decimation may add the final row on top of the cap
+    # The final row's tick column equals the last index from the mock (range(100))
+    assert data[-1].split("|")[1].strip() == "99"
+
+
+@pytest.mark.asyncio
+async def test_run_simulation_negative_max_rows_rejected(mock_context, mock_nl):
+    mock_nl._model_loaded = True
+    with pytest.raises(Exception, match="max_rows"):
+        await run_simulation(10, ["count turtles"], mock_context, max_rows=-5)
+
+
 # ── set_parameter ────────────────────────────────────────────────────────────
 
 
@@ -190,6 +227,24 @@ async def test_get_patch_data(mock_context, mock_nl):
     grid = json.loads(result)
     assert isinstance(grid, list)
     assert grid[0] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_get_patch_data_summary_only(mock_context, mock_nl):
+    mock_nl._model_loaded = True
+    result = await get_patch_data("pcolor", mock_context, summary_only=True)
+    payload = json.loads(result)
+    # Mock returns 2x2 grid [[1,2],[3,4]]
+    assert payload["attribute"] == "pcolor"
+    assert payload["rows"] == 2
+    assert payload["cols"] == 2
+    assert payload["total_cells"] == 4
+    assert payload["min"] == 1
+    assert payload["max"] == 4
+    assert payload["mean"] == 2.5
+    assert payload["unique_values"] == 4
+    # The full grid must NOT be in the summary response
+    assert "values" not in payload
 
 
 # ── create_model ─────────────────────────────────────────────────────────────
