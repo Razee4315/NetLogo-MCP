@@ -24,6 +24,15 @@ def programming_guide() -> str:
     return (_DATA_DIR / "programming_guide.md").read_text(encoding="utf-8")
 
 
+@mcp.resource("netlogo://docs/transition")
+def transition_guide() -> str:
+    """NetLogo 6 → 7 porting notes — the breaking changes that come up when
+    loading old models (typically from CoMSES). Read this when an old
+    model errors on a primitive or syntax that used to work.
+    """
+    return (_DATA_DIR / "netlogo7_transition.md").read_text(encoding="utf-8")
+
+
 @mcp.resource("netlogo://models/{name}")
 def model_source(name: str) -> str:
     """Return the source code of a .nlogo/.nlogox model from the models directory.

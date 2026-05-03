@@ -131,10 +131,11 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
         )
     logger.info("NetLogo workspace ready (%s) — all tools available", mode_str)
 
+    state: dict[str, Any] = {"netlogo": nl, "current_model_path": None}
     try:
-        yield {"netlogo": nl}
+        yield state
     finally:
-        shutdown_netlogo({"netlogo": nl})
+        shutdown_netlogo(state)
 
 
 mcp = FastMCP(

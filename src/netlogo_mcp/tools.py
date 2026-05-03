@@ -1,4 +1,5 @@
-"""NetLogo MCP tools — 12 tools for controlling NetLogo from Claude."""
+"""NetLogo MCP tools — interactive NetLogo control + CoMSES integration +
+BehaviorSpace experiment runner."""
 
 from __future__ import annotations
 
@@ -13,24 +14,54 @@ from fastmcp import Context
 from fastmcp.exceptions import ToolError
 from fastmcp.utilities.types import Image
 
+from . import bspace as _bspace
 from . import comses as _comses
 from .config import (
     get_comses_cache_dir,
     get_comses_max_download_mb,
     get_exports_dir,
     get_models_dir,
+    get_netlogo_home,
 )
 from .server import mcp
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
+def _lifespan(ctx: Context) -> dict[str, Any]:
+    """Return the lifespan context dict (for `netlogo`, `current_model_path`)."""
+    try:
+        ls = ctx.request_context.lifespan_context  # type: ignore[union-attr]
+    except AttributeError as exc:
+        raise ToolError("NetLogo workspace is not initialized.") from exc
+    if not isinstance(ls, dict):
+        raise ToolError("NetLogo workspace is not initialized.")
+    return ls
+
+
 def _nl(ctx: Context):  # type: ignore[type-arg]
     """Get the shared NetLogoLink instance from the lifespan context."""
     try:
-        return ctx.request_context.lifespan_context["netlogo"]  # type: ignore[union-attr]
-    except (AttributeError, KeyError) as exc:
+        return _lifespan(ctx)["netlogo"]
+    except KeyError as exc:
         raise ToolError("NetLogo workspace is not initialized.") from exc
+
+
+def _set_current_model_path(ctx: Context, path: Path | str | None) -> None:
+    """Record the path of the currently loaded model so later tools (like
+    BehaviorSpace) can run against the same file the AI just loaded."""
+    try:
+        ls = _lifespan(ctx)
+    except ToolError:
+        return
+    ls["current_model_path"] = str(path) if path is not None else None
+
+
+def _current_model_path(ctx: Context) -> str | None:
+    try:
+        return _lifespan(ctx).get("current_model_path")
+    except ToolError:
+        return None
 
 
 def _require_model(ctx: Context):
@@ -118,6 +149,7 @@ async def open_model(path: str, ctx: Context) -> str:
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
+    _set_current_model_path(ctx, p)
     return f"Model loaded: {p.name}"
 
 
@@ -321,6 +353,7 @@ async def create_model(code: str, ctx: Context) -> str:
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
+    _set_current_model_path(ctx, model_path)
     return f"Model created and loaded: {model_path}"
 
 
@@ -879,6 +912,7 @@ async def open_comses_model(
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
+    _set_current_model_path(ctx, outcome.selected_netlogo_file.resolve())
     payload["status"] = "loaded_netlogo"
     payload["message"] = (
         f"Loaded NetLogo model: {outcome.selected_netlogo_file.name} "
@@ -1066,3 +1100,381 @@ async def read_comses_files(
         },
         indent=2,
     )
+
+
+# ── BehaviorSpace ────────────────────────────────────────────────────────────
+#
+# Three tools — `list_experiments`, `preview_experiment`, `run_experiment` —
+# that drive NetLogo's BehaviorSpace via the canonical headless launcher
+# (`NetLogo_Console` / `netlogo-headless.bat`). The launcher runs in a
+# separate JVM so the MCP server's interactive workspace stays untouched.
+#
+# Long-run handling: every run path enforces a `max_total_runs` ceiling and
+# a wall-clock `timeout_seconds`. The launcher writes the table CSV
+# incrementally, so timeouts preserve partial results.
+
+
+def _resolve_model_path_for_bspace(ctx: Context, model_path: str | None) -> Path:
+    """Return an existing on-disk model path for BehaviorSpace.
+
+    Order of preference:
+    1. Explicit `model_path` argument (resolved against the models dir if
+       relative).
+    2. The path of the model the AI most recently opened/created.
+    """
+    if model_path:
+        p = Path(model_path)
+        if not p.is_absolute():
+            p = get_models_dir() / p
+        p = p.resolve()
+    else:
+        current = _current_model_path(ctx)
+        if not current:
+            raise ToolError(
+                "No model is loaded. Open a model first (open_model, "
+                "create_model, or open_comses_model) — or pass model_path "
+                "explicitly."
+            )
+        p = Path(current).resolve()
+    if not p.exists():
+        raise ToolError(f"Model file not found on disk: {p}")
+    if p.suffix.lower() not in (".nlogo", ".nlogox", ".nlogox3d", ".nlogo3d"):
+        raise ToolError(f"Not a NetLogo model file: {p}")
+    return p
+
+
+def _spec_from_inline_args(
+    *,
+    name: str,
+    repetitions: int,
+    time_limit: int,
+    setup_commands: str,
+    go_commands: str,
+    stop_condition: str | None,
+    metrics: list[str] | None,
+    variables: list[dict] | None,
+    run_metrics_every_step: bool,
+    sequential_run_order: bool,
+) -> _bspace.ExperimentSpec:
+    if repetitions < 1:
+        raise ToolError("repetitions must be >= 1")
+    if time_limit < 0:
+        raise ToolError("time_limit must be >= 0 (use 0 for no limit)")
+    if not metrics:
+        raise ToolError(
+            "metrics is required — at least one reporter to collect each run."
+        )
+    parsed_vars: list[_bspace.ExperimentVariable] = []
+    for raw in variables or []:
+        if not isinstance(raw, dict):
+            raise ToolError(f"variable entry is not an object: {raw!r}")
+        try:
+            parsed_vars.append(_bspace.variable_from_dict(raw))
+        except _bspace.BSpaceError as e:
+            raise ToolError(str(e)) from e
+    return _bspace.ExperimentSpec(
+        name=name or "mcp-experiment",
+        repetitions=int(repetitions),
+        time_limit=int(time_limit),
+        setup_commands=setup_commands or "setup",
+        go_commands=go_commands or "go",
+        stop_condition=stop_condition or None,
+        metrics=list(metrics),
+        variables=parsed_vars,
+        run_metrics_every_step=bool(run_metrics_every_step),
+        sequential_run_order=bool(sequential_run_order),
+    )
+
+
+@mcp.tool()
+async def list_experiments(ctx: Context, model_path: str | None = None) -> str:
+    """List BehaviorSpace experiments saved inside a NetLogo model file.
+
+    Reads the `<experiments>` section of a `.nlogox` (or `.nlogo`) without
+    starting a JVM, so it's instant. By default it inspects the model the
+    AI most recently loaded; pass `model_path` to inspect a specific file.
+
+    Returns JSON: `{"model_path": ..., "experiments": [<spec>...]}` where
+    each spec includes `name`, `repetitions`, `time_limit`,
+    `setup_commands`, `go_commands`, `metrics`, `variables` (with
+    `expanded_size` per variable), and `total_runs`. An empty list means
+    the file has no saved experiments — you can still pass an inline
+    spec to `run_experiment`.
+    """
+    p = _resolve_model_path_for_bspace(ctx, model_path)
+    try:
+        specs = _bspace.parse_experiments(p)
+    except _bspace.BSpaceError as e:
+        raise ToolError(str(e)) from e
+    return json.dumps(
+        {
+            "model_path": str(p),
+            "experiments": [_bspace.spec_to_dict(s) for s in specs],
+        },
+        indent=2,
+    )
+
+
+@mcp.tool()
+async def preview_experiment(
+    ctx: Context,
+    experiment_name: str | None = None,
+    metrics: list[str] | None = None,
+    variables: list[dict] | None = None,
+    repetitions: int = 1,
+    time_limit: int = 1000,
+    setup_commands: str = "setup",
+    go_commands: str = "go",
+    stop_condition: str | None = None,
+    run_metrics_every_step: bool = True,
+    sequential_run_order: bool = True,
+    model_path: str | None = None,
+) -> str:
+    """Show the run plan for a BehaviorSpace experiment WITHOUT executing it.
+
+    Use this before `run_experiment` to verify the parameter combinations,
+    total runs, and rough time estimate. Two modes:
+
+    - **By name:** pass `experiment_name` (must match a saved experiment in
+      the model file). The other args are ignored.
+    - **Inline:** omit `experiment_name` and pass `metrics` + (optionally)
+      `variables`, `repetitions`, `time_limit`, `setup_commands`,
+      `go_commands`, `stop_condition`.
+
+    Returns JSON with the resolved spec, `total_runs`, and a coarse
+    `estimated_seconds_lower_bound` derived from `time_limit × total_runs`
+    assuming roughly 1k ticks/s per run (real models are usually slower).
+    """
+    p = _resolve_model_path_for_bspace(ctx, model_path)
+    spec = await _resolve_spec(
+        ctx,
+        p,
+        experiment_name=experiment_name,
+        metrics=metrics,
+        variables=variables,
+        repetitions=repetitions,
+        time_limit=time_limit,
+        setup_commands=setup_commands,
+        go_commands=go_commands,
+        stop_condition=stop_condition,
+        run_metrics_every_step=run_metrics_every_step,
+        sequential_run_order=sequential_run_order,
+    )
+    total_runs = _bspace.count_runs(spec)
+    # Very rough lower bound: assume ~1k ticks per second per run, single-thread.
+    ticks_total = max(1, spec.time_limit) * total_runs
+    estimate_seconds = ticks_total / 1000.0
+    return json.dumps(
+        {
+            "model_path": str(p),
+            "spec": _bspace.spec_to_dict(spec),
+            "total_runs": total_runs,
+            "estimated_seconds_lower_bound": round(estimate_seconds, 1),
+            "note": (
+                "Estimate assumes ~1000 ticks/s per run. Real models — "
+                "especially those with many agents or complex updates — "
+                "can be 10-100x slower. Use --threads in run_experiment "
+                "to parallelise."
+            ),
+        },
+        indent=2,
+    )
+
+
+async def _resolve_spec(
+    ctx: Context,
+    model_path: Path,
+    *,
+    experiment_name: str | None,
+    metrics: list[str] | None,
+    variables: list[dict] | None,
+    repetitions: int,
+    time_limit: int,
+    setup_commands: str,
+    go_commands: str,
+    stop_condition: str | None,
+    run_metrics_every_step: bool,
+    sequential_run_order: bool,
+) -> _bspace.ExperimentSpec:
+    """Pick a saved experiment by name OR build one from inline args."""
+    if experiment_name:
+        try:
+            specs = _bspace.parse_experiments(model_path)
+        except _bspace.BSpaceError as e:
+            raise ToolError(str(e)) from e
+        match = next((s for s in specs if s.name == experiment_name), None)
+        if match is None:
+            names = [s.name for s in specs]
+            raise ToolError(
+                f"experiment {experiment_name!r} not found in {model_path.name}. "
+                f"Available: {names or '(none defined)'}"
+            )
+        return match
+    return _spec_from_inline_args(
+        name="mcp-experiment",
+        repetitions=repetitions,
+        time_limit=time_limit,
+        setup_commands=setup_commands,
+        go_commands=go_commands,
+        stop_condition=stop_condition,
+        metrics=metrics,
+        variables=variables,
+        run_metrics_every_step=run_metrics_every_step,
+        sequential_run_order=sequential_run_order,
+    )
+
+
+@mcp.tool()
+async def run_experiment(
+    ctx: Context,
+    experiment_name: str | None = None,
+    metrics: list[str] | None = None,
+    variables: list[dict] | None = None,
+    repetitions: int = 1,
+    time_limit: int = 1000,
+    setup_commands: str = "setup",
+    go_commands: str = "go",
+    stop_condition: str | None = None,
+    run_metrics_every_step: bool = False,
+    sequential_run_order: bool = True,
+    threads: int = 0,
+    max_total_runs: int = 200,
+    timeout_seconds: int = 600,
+    model_path: str | None = None,
+    output_name: str | None = None,
+) -> str:
+    """Run a BehaviorSpace experiment headlessly and return summarized results.
+
+    Two ways to specify the experiment:
+
+    - **By name** — pass `experiment_name` matching a saved experiment in
+      the loaded model (.nlogox `<experiments>` section). All other
+      experiment-shape args are ignored.
+    - **Inline** — omit `experiment_name`. Required: `metrics`. Optional:
+      `variables` (list of `{"name", "values"}` or `{"name", "first",
+      "step", "last"}`), `repetitions`, `time_limit`, `setup_commands`,
+      `go_commands`, `stop_condition`.
+
+    Variable shapes (Cartesian product of all expanded values is run for
+    each repetition)::
+
+        [{"name": "density", "values": [50, 60, 70]},
+         {"name": "growth-rate", "first": 0.1, "step": 0.05, "last": 0.3}]
+
+    Long-run controls:
+        - `max_total_runs` — refuse to start if `total_runs` exceeds this.
+        - `timeout_seconds` — kill the launcher after this many seconds.
+          Partial results in the table CSV are preserved.
+        - `threads` — parallel runs (0 = let NetLogo decide; default ~75% of CPUs).
+
+    The launcher runs in a SEPARATE JVM, so the GUI workspace this server
+    is hosting is unaffected. Run before calling this only matters insofar
+    as the model file must be saved on disk (it is, after open_model /
+    create_model / open_comses_model).
+
+    Returns JSON with: `output_csv`, `runs`, `metrics_summary`,
+    `per_combination`, `duration_seconds`, `command`, `timed_out`. The
+    full per-tick data is in `output_csv` for offline analysis.
+    """
+    p = _resolve_model_path_for_bspace(ctx, model_path)
+    spec = await _resolve_spec(
+        ctx,
+        p,
+        experiment_name=experiment_name,
+        metrics=metrics,
+        variables=variables,
+        repetitions=repetitions,
+        time_limit=time_limit,
+        setup_commands=setup_commands,
+        go_commands=go_commands,
+        stop_condition=stop_condition,
+        run_metrics_every_step=run_metrics_every_step,
+        sequential_run_order=sequential_run_order,
+    )
+
+    total_runs = _bspace.count_runs(spec)
+    if total_runs > max_total_runs:
+        raise ToolError(
+            f"This experiment would launch {total_runs} runs, which exceeds "
+            f"max_total_runs={max_total_runs}. Either narrow the parameter "
+            "ranges, lower repetitions, or raise max_total_runs explicitly. "
+            "Tip: run preview_experiment first."
+        )
+    if timeout_seconds < 1:
+        raise ToolError("timeout_seconds must be >= 1")
+
+    # Build the setup-file XML and locate the launcher.
+    try:
+        launcher = _bspace.locate_headless_launcher(get_netlogo_home())
+    except _bspace.BSpaceError as e:
+        raise ToolError(
+            f"Could not find NetLogo headless launcher: {e}. "
+            "Verify NETLOGO_HOME points at a NetLogo install dir "
+            "containing NetLogo_Console / netlogo-headless."
+        ) from e
+
+    runs_dir = get_exports_dir() / "experiments"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base = _bspace.safe_output_name(output_name or spec.name)
+    setup_file = runs_dir / f"{base}_{timestamp}.setup.xml"
+    table_csv = runs_dir / f"{base}_{timestamp}.table.csv"
+    setup_file.write_text(_bspace.build_setup_file_xml(spec), encoding="utf-8")
+
+    is_3d = p.suffix.lower() in (".nlogox3d", ".nlogo3d")
+
+    try:
+        outcome = _bspace.run_headless(
+            launcher=launcher,
+            model_path=p,
+            table_csv=table_csv,
+            setup_file=setup_file,
+            experiment_name=spec.name,
+            threads=(threads if threads and threads > 0 else None),
+            is_3d=is_3d,
+            timeout_seconds=int(timeout_seconds),
+        )
+    except _bspace.BSpaceError as e:
+        raise ToolError(str(e)) from e
+
+    payload: dict[str, Any] = {
+        "model_path": str(p),
+        "spec": _bspace.spec_to_dict(spec),
+        "setup_file": str(setup_file),
+        "output_csv": str(table_csv),
+        "command": outcome.command,
+        "duration_seconds": round(outcome.duration_seconds, 2),
+        "timed_out": outcome.timed_out,
+        "rows_returned": outcome.rows_returned,
+        "return_code": outcome.return_code,
+    }
+
+    if not outcome.success:
+        payload["status"] = "failed" if not outcome.timed_out else "timed_out"
+        payload["stderr_tail"] = outcome.stderr_tail
+        payload["message"] = (
+            "BehaviorSpace did not complete cleanly. "
+            "Inspect stderr_tail for clues; partial CSV at output_csv."
+        )
+        return json.dumps(payload, indent=2)
+
+    # Parse the table and summarize.
+    try:
+        df = _bspace.parse_table_csv(table_csv)
+    except _bspace.BSpaceError as e:
+        payload["status"] = "parse_error"
+        payload["message"] = str(e)
+        return json.dumps(payload, indent=2)
+
+    summary = _bspace.summarize_results(df, spec)
+    payload["status"] = "ok"
+    payload["runs"] = summary["runs"]
+    payload["total_rows"] = summary["total_rows"]
+    payload["metrics_summary"] = summary["metrics_summary"]
+    payload["per_combination"] = summary["per_combination"]
+    payload["message"] = (
+        f"Completed {summary['runs']} runs in "
+        f"{round(outcome.duration_seconds, 1)}s. "
+        f"Full per-tick data in {table_csv.name}."
+    )
+    return json.dumps(payload, indent=2)

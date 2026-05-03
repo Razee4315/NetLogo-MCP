@@ -148,6 +148,70 @@ def explore_comses(topic: str) -> list[Message]:
 
 
 @mcp.prompt()
+def behaviorspace_experiment(
+    goal: str = "explore parameter space",
+    repetitions: int = 3,
+) -> list[Message]:
+    """Drive a BehaviorSpace experiment via headless NetLogo.
+
+    Use this when the user wants to systematically explore parameters,
+    not just a single run. Unlike a manual `parameter_sweep`, this uses
+    NetLogo's BehaviorSpace via a separate headless JVM, which gives you
+    parallel run scheduling and the canonical table-CSV output.
+
+    Args:
+        goal: Plain-English description of what the user wants to learn.
+        repetitions: Repetitions per parameter combination (3 is a sane
+                     default for stochastic models — bump to 10 if the
+                     user wants tight confidence intervals).
+    """
+    return [
+        Message(
+            role="user",
+            content=(
+                f"I want to use BehaviorSpace to {goal}. Please drive the "
+                "experiment carefully — long runs are easy to start and "
+                "hard to interrupt cleanly. Follow these steps exactly:\n\n"
+                "1. **Inventory.** Call `list_experiments()` to see whether "
+                "the loaded model already has saved experiments. If yes, "
+                "show me names + variable shapes and ask whether to use one "
+                "of those instead of authoring a new one.\n\n"
+                "2. **Author the spec.** Either:\n"
+                "   - Pass `experiment_name=<saved name>` when calling "
+                "`run_experiment`, OR\n"
+                '   - Build an inline spec: `metrics=["count X", ...]`, '
+                '`variables=[{"name": "foo", "values": [...]}]`, '
+                "`time_limit=<ticks>`, "
+                f"`repetitions={repetitions}`, and `setup_commands` / "
+                "`go_commands` if they differ from the defaults.\n\n"
+                "3. **Preview, ALWAYS.** Call `preview_experiment(...)` "
+                "with the same args you'd pass to `run_experiment`. "
+                "Verify `total_runs` and the parameter combinations "
+                "before committing. If `total_runs` is large (> ~50), "
+                "tell me the count and the time estimate and ask "
+                "explicitly before running.\n\n"
+                "4. **Run.** Call `run_experiment(...)` with the same "
+                "args plus `threads` if I want parallelism (default 0 "
+                "lets NetLogo pick ~75% of cores). Default "
+                "`max_total_runs=200` and `timeout_seconds=600` are "
+                "safe — only raise them with my permission.\n\n"
+                "5. **Read results.** The response includes "
+                "`metrics_summary` (overall stats per metric) and "
+                "`per_combination` (final-step stats grouped by "
+                "parameter combo). The full per-tick CSV is at "
+                "`output_csv` for offline analysis. Show me a compact "
+                "table of `per_combination` first; only quote the CSV "
+                "path if I ask for raw data.\n\n"
+                "6. **If the model uses old syntax and the run fails:** "
+                "consult the `netlogo://docs/transition` resource — "
+                "almost every BehaviorSpace failure on an old CoMSES "
+                "model is a porting issue, not a BehaviorSpace bug.\n"
+            ),
+        )
+    ]
+
+
+@mcp.prompt()
 def parameter_sweep(
     parameter: str,
     min_val: float,
