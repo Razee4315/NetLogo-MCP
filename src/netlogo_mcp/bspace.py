@@ -339,7 +339,9 @@ def _experiment_from_element(exp: ET.Element) -> ExperimentSpec:
                 metrics.append(txt)
 
     variables: list[ExperimentVariable] = []
-    constants_el = exp.find("constants") or exp
+    constants_el = exp.find("constants")
+    if constants_el is None:
+        constants_el = exp
     for vs in constants_el.findall("enumeratedValueSet"):
         vals: list[Any] = []
         for v in vs.findall("value"):
