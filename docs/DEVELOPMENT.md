@@ -16,21 +16,26 @@ NetLogo_MCP/
 ├── src/
 │   └── netlogo_mcp/
 │       ├── server.py           # FastMCP app, stdout protection, lifespan
-│       ├── tools.py            # All 17 tools (12 NetLogo + 5 CoMSES)
+│       ├── tools.py            # All 20 tools (12 NetLogo + 5 CoMSES + 3 BehaviorSpace)
 │       ├── comses.py           # CoMSES Net API client + safe zip extract
-│       ├── resources.py        # 3 resources (docs + model source)
-│       ├── prompts.py          # 4 prompts (analyze, create, sweep, explore_comses)
+│       ├── bspace.py           # BehaviorSpace XML build/parse + headless launcher driver
+│       ├── resources.py        # 4 resources (primitives, programming, model source, transition)
+│       ├── prompts.py          # 5 prompts (analyze, create, sweep, explore_comses, behaviorspace)
 │       ├── config.py           # Environment variable loading
 │       ├── py.typed            # PEP 561 type marker
 │       └── data/
 │           ├── primitives.md   # NetLogo primitives reference
-│           └── programming_guide.md
+│           ├── programming_guide.md
+│           └── netlogo7_transition.md  # NetLogo 6→7 porting checklist
 ├── models/                     # Drop your .nlogo/.nlogox files here (empty by default)
-├── exports/                    # PNG views and world CSVs saved here at runtime
+├── exports/                    # PNG views, world CSVs, and BehaviorSpace results
+│   └── experiments/            # BehaviorSpace setup XMLs + table CSVs
 └── tests/
     ├── conftest.py             # Mock fixtures (no JVM needed)
     ├── test_server.py
     ├── test_tools.py
+    ├── test_bspace.py          # BehaviorSpace XML/parse/CSV unit tests (no JVM)
+    ├── test_bspace_tools.py    # MCP tool wrappers with subprocess mocked out
     ├── test_comses.py          # CoMSES integration: API, zip safety, tools, prompt
     ├── test_resources.py
     └── fixtures/comses/        # Captured JSON fixtures for CoMSES tests
@@ -92,6 +97,14 @@ The NetLogo JVM is started in the lifespan context manager (before FastMCP accep
 
 ### GUI vs Headless
 Controlled by the `NETLOGO_GUI` env var (defaults to `true`). The GUI window serves as visual confirmation the server is running — better UX than headless-by-default.
+
+### BehaviorSpace runs in a separate JVM
+The MCP server's interactive workspace stays alive while `run_experiment` spawns a fresh `NetLogo_Console --headless` (or `netlogo-headless.bat`) subprocess. Trade-offs:
+
+- **Pro:** canonical BehaviorSpace semantics — parallel run scheduling, full table CSV format, no dependency on the unbundled `bspace` extension.
+- **Pro:** the GUI workspace doesn't get clobbered — long sweeps don't kill interactive use.
+- **Con:** spawning a second JVM is heavy (~30-60s per run). For one-off small sweeps, the existing `parameter_sweep` prompt (which uses the live JVM via `repeat_report`) is still cheaper.
+- The setup-file XML and table CSV land in `exports/experiments/`. The XML uses the standalone `behaviorspace.dtd` DOCTYPE; the table CSV's first 6 lines are metadata and `parse_table_csv` skips them.
 
 ## Contributing
 

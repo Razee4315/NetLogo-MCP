@@ -36,12 +36,14 @@ By default, a real NetLogo window opens so you can watch your simulations run li
 
 - Create models from code (AI wraps them in `.nlogox` format)
 - Run simulations, collect tick-by-tick data as markdown tables
+- **Run BehaviorSpace experiments** — list saved experiments, preview the run plan, drive parallel parameter sweeps via the headless launcher
 - Export view as PNG — visible inline in chat
 - Set global variables, sliders, switches
 - Get world state, agent counts, world dimensions, patch grids
-- Built-in NetLogo primitives and programming guide as MCP resources
-- Prompt templates for model analysis, ABM creation, parameter sweeps
+- Built-in NetLogo primitives, programming guide, and **NetLogo 6→7 transition guide** as MCP resources
+- Prompt templates for model analysis, ABM creation, parameter sweeps, BehaviorSpace experiments, and CoMSES exploration
 - Live GUI mode for teaching and real-time exploration
+- Token-efficient output modes (`summary_only`, `max_rows` decimation) for long runs
 
 ## Tools
 
@@ -64,8 +66,23 @@ By default, a real NetLogo window opens so you can watch your simulations run li
 | `download_comses_model(uuid)` | Safely download + extract a COMSES archive |
 | `open_comses_model(uuid)` | Download (or reuse cache) and load NetLogo models |
 | `read_comses_files(uuid)` | Read ODD / source contents from a downloaded model |
+| `list_experiments()` | List BehaviorSpace experiments saved in the loaded model |
+| `preview_experiment(...)` | Preview a BehaviorSpace run plan (total runs, time estimate) without executing |
+| `run_experiment(...)` | Run a BehaviorSpace experiment headlessly (named or inline spec) |
 
-Plus 3 resources (primitives reference, programming guide, model source) and 4 prompts (`analyze_model`, `create_abm`, `parameter_sweep`, `explore_comses`).
+Plus 4 resources (primitives reference, programming guide, model source, **NetLogo 6→7 transition guide**) and 5 prompts (`analyze_model`, `create_abm`, `parameter_sweep`, `explore_comses`, **`behaviorspace_experiment`**).
+
+### BehaviorSpace integration
+
+Run NetLogo's BehaviorSpace experiments from any MCP client. Three tools cover the workflow:
+
+1. **`list_experiments()`** — read the `<experiments>` section of the loaded `.nlogox` to inventory saved experiments. No JVM round-trip; instant.
+2. **`preview_experiment(...)`** — show the run plan (total runs, parameter combos, time estimate) without executing. Always run this before a long sweep.
+3. **`run_experiment(...)`** — drive `NetLogo_Console --headless` (or `netlogo-headless.bat`) in a separate JVM. Returns parsed results plus the path to the full table CSV.
+
+Long runs are bounded by `max_total_runs` (default 200) and `timeout_seconds` (default 600); partial table CSV is preserved on timeout.
+
+Try it with the `behaviorspace_experiment` prompt or just ask: *"Run a BehaviorSpace experiment varying initial-density from 50 to 90 in steps of 10, three reps each, measuring count turtles."*
 
 ### CoMSES Net integration
 

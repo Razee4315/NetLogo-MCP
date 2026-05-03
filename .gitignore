@@ -40,6 +40,8 @@ htmlcov/
 # Exports (keep folder structure, ignore actual exports)
 exports/views/*.png
 exports/worlds/*.csv
+exports/experiments/*.csv
+exports/experiments/*.xml
 
 # Auto-created models (from create_model tool)
 models/_created_*.nlogox

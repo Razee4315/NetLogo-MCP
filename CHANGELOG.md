@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — BehaviorSpace integration & NetLogo 7 transition guide
+
+- 3 new tools for running NetLogo BehaviorSpace experiments:
+  `list_experiments` (read saved experiments from `.nlogox`),
+  `preview_experiment` (show run plan without executing),
+  `run_experiment` (drive the headless launcher in a separate JVM and
+  return parsed table-CSV results).
+- Drives BehaviorSpace via the canonical `NetLogo_Console` /
+  `netlogo-headless` launcher — no dependency on the unbundled `bspace`
+  extension, works with NetLogo 6.x and 7.x.
+- Hard run cap (`max_total_runs`, default 200) and wall-clock timeout
+  (`timeout_seconds`, default 600). Partial table CSV is preserved on
+  timeout; the runner reports `timed_out` separately from `failed`.
+- New prompt: `behaviorspace_experiment` — enforces preview-before-run.
+- New resource: `netlogo://docs/transition` — focused 6→7 porting guide
+  for AI clients hitting old CoMSES models. Covers `.nlogo` →
+  `.nlogox` auto-conversion, `ifelse-value` precedence shift, `task` →
+  anonymous procedures, movie-prim → `vid` extension, bundled vs
+  non-bundled extensions in 7.0.3.
+- Tracks `current_model_path` in the lifespan context so BehaviorSpace
+  can target the model the AI most recently loaded without an extra arg.
+
+### Changed — token efficiency
+
+- `run_simulation` accepts `summary_only=True` (returns
+  min/mean/max/std/final per reporter as one row each) and `max_rows=N`
+  (evenly-spaced decimation that always keeps the final tick).
+- `get_patch_data` accepts `summary_only=True` (returns shape + numeric
+  stats + unique-count instead of the full 2D grid).
+- Defaults are unchanged; existing prompts keep working.
+
 ### Added — CoMSES Net integration
 
 - 5 new tools for exploring the CoMSES Net computational model library:
