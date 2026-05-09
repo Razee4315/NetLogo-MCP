@@ -4,6 +4,7 @@ BehaviorSpace experiment runner."""
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,10 +21,18 @@ from .config import (
     get_comses_cache_dir,
     get_comses_max_download_mb,
     get_exports_dir,
+    get_gui_mode,
     get_models_dir,
     get_netlogo_home,
 )
 from .server import mcp
+
+# NetLogo identifiers may contain letters, digits, and the punctuation
+# characters NetLogo permits in variable / breed names: ``- _ . ? !``.
+# We reject anything else to prevent command injection through `set_parameter`
+# (the value is escaped, but the name is interpolated literally into a
+# `set <name> <value>` command).
+_NETLOGO_IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_\-.?!]*$")
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -216,6 +225,9 @@ async def run_simulation(
         raise ToolError("ticks must be between 1 and 10000.")
     if not reporters:
         raise ToolError("reporters list cannot be empty.")
+    for i, r in enumerate(reporters):
+        if not isinstance(r, str) or not r.strip():
+            raise ToolError(f"reporters[{i}] must be a non-empty string (got {r!r}).")
     if max_rows < 0:
         raise ToolError("max_rows must be >= 0 (0 = no cap).")
 
@@ -285,8 +297,17 @@ async def set_parameter(name: str, value: Any, ctx: Context) -> str:
 
     Args:
         name: Name of the global variable (e.g. 'initial-number-sheep').
+              Must be a valid NetLogo identifier — letters, digits, and any
+              of ``- _ . ? !`` only. Names with whitespace or shell/NetLogo
+              meta-characters are rejected to prevent command injection.
         value: The value to set. Numbers, strings, booleans accepted.
     """
+    if not isinstance(name, str) or not _NETLOGO_IDENTIFIER_RE.match(name):
+        raise ToolError(
+            f"Invalid parameter name: {name!r}. "
+            "Must start with a letter and contain only letters, digits, "
+            "or any of '-', '_', '.', '?', '!' (NetLogo's identifier rules)."
+        )
     nl = _require_model(ctx)
     # Format the value for NetLogo
     if isinstance(value, bool):
@@ -354,6 +375,8 @@ async def get_patch_data(
         JSON 2D array (rows = y descending, cols = x ascending) by default,
         or a compact summary dict if `summary_only=True`.
     """
+    if not isinstance(attribute, str) or not attribute.strip():
+        raise ToolError("attribute must be a non-empty string.")
     nl = _require_model(ctx)
     try:
         data = nl.patch_report(attribute)
@@ -571,6 +594,76 @@ async def export_world(ctx: Context) -> str:
         raise _wrap_netlogo_error(e) from e
 
     return f"World exported to {export_path}"
+
+
+@mcp.tool()
+async def close_model(ctx: Context) -> str:
+    """Unload the currently loaded model and reset the workspace.
+
+    Useful when you want to discard pending state (mid-run agents, set
+    parameters, pending plots) and start fresh, or before opening a new
+    model file from disk to make sure cached compilation state isn't carried
+    forward.
+
+    Note: this does NOT shut down the JVM or NetLogo workspace — only the
+    model. The next `open_model` / `create_model` call will reuse the same
+    JVM (no 30-60s warmup).
+    """
+    nl = _nl(ctx)
+    if _current_model_path(ctx) is None:
+        raise ToolError("No model is currently loaded.")
+    try:
+        # NetLogo doesn't expose an explicit "close model" primitive; the
+        # closest stable equivalent is `clear-all`, which wipes turtles,
+        # patches, ticks, plots, and globals. We then forget the path so
+        # subsequent BehaviorSpace / world-state tools refuse to run until
+        # a new model is loaded.
+        nl.command("clear-all")
+    except Exception as e:
+        raise _wrap_netlogo_error(e) from e
+    _set_current_model_path(ctx, None)
+    return "Model closed. World cleared. Open another model to continue."
+
+
+@mcp.tool()
+async def server_info(ctx: Context) -> str:
+    """Return a snapshot of the running NetLogo MCP server's configuration.
+
+    Useful as a no-cost health check for the AI / user — returns the server
+    version, configured paths, GUI mode, currently-loaded model, and whether
+    a NetLogo headless launcher is reachable for BehaviorSpace runs.
+
+    No JVM round-trip; this is a pure config / filesystem inspection so it
+    works even before the workspace is fully initialized.
+    """
+    from . import __version__
+
+    info: dict[str, Any] = {
+        "server_version": __version__,
+        "gui_mode": get_gui_mode(),
+        "models_dir": str(get_models_dir()),
+        "exports_dir": str(get_exports_dir()),
+        "comses_cache_dir": str(get_comses_cache_dir()),
+        "comses_max_download_mb": get_comses_max_download_mb(),
+        "current_model_path": _current_model_path(ctx),
+    }
+    try:
+        info["netlogo_home"] = get_netlogo_home()
+    except OSError as exc:
+        info["netlogo_home"] = None
+        info["netlogo_home_error"] = str(exc)
+
+    if info.get("netlogo_home"):
+        try:
+            launcher = _bspace.locate_headless_launcher(info["netlogo_home"])
+            info["headless_launcher"] = str(launcher)
+        except _bspace.BSpaceError as exc:
+            info["headless_launcher"] = None
+            info["headless_launcher_error"] = str(exc)
+    else:
+        info["headless_launcher"] = None
+
+    return json.dumps(info, indent=2)
 
 
 # ── CoMSES Net integration ──────────────────────────────────────────────────
