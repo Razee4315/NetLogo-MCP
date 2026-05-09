@@ -14,7 +14,6 @@ sys.stdout = sys.stderr
 import logging
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
-from threading import RLock
 from typing import Any, TypeVar
 
 from fastmcp import FastMCP
@@ -22,7 +21,6 @@ from fastmcp import FastMCP
 from .config import get_gui_mode, get_jvm_path, get_netlogo_home
 
 logger = logging.getLogger("netlogo_mcp")
-_workspace_lock = RLock()
 T = TypeVar("T")
 
 
@@ -43,49 +41,6 @@ def run_with_stdout_protection(
     """Run a callable while shielding MCP stdout from JVM output."""
     with protect_stdout():
         return func(*args, **kwargs)
-
-
-def get_or_create_netlogo(lifespan_context: dict[str, Any]) -> Any:
-    """Create the shared NetLogo workspace on first use, then reuse it.
-
-    Lazy init: the JVM starts on the first tool call (30-60s), but
-    this ensures it runs on the correct thread with the right Java
-    class loader context. All subsequent calls are instant.
-    """
-    existing = lifespan_context.get("netlogo")
-    if existing is not None:
-        return existing
-
-    with _workspace_lock:
-        existing = lifespan_context.get("netlogo")
-        if existing is not None:
-            return existing
-
-        with protect_stdout():
-            import pynetlogo
-
-            nl_home = get_netlogo_home()
-            jvm_path = get_jvm_path()
-            gui = get_gui_mode()
-            mode_str = "GUI (live window)" if gui else "headless"
-
-            logger.info("Starting Java Virtual Machine...")
-            logger.info(
-                "Initializing NetLogo in %s mode (NETLOGO_HOME=%s)",
-                mode_str,
-                nl_home,
-            )
-
-            nl = pynetlogo.NetLogoLink(
-                netlogo_home=nl_home,
-                gui=gui,
-                thd=False,  # JPype handles Swing EDT; thd=True hangs on Windows
-                jvm_path=jvm_path,
-            )
-
-        lifespan_context["netlogo"] = nl
-        logger.info("NetLogo workspace ready (%s) — all tools available", mode_str)
-        return nl
 
 
 def shutdown_netlogo(lifespan_context: dict[str, Any]) -> None:
