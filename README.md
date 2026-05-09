@@ -60,6 +60,8 @@ By default, a real NetLogo window opens so you can watch your simulations run li
 | `export_view()` | Export current view as PNG image |
 | `save_model(name, code)` | Save model to file |
 | `export_world()` | Export full world state to CSV |
+| `close_model()` | Unload the current model and `clear-all` the workspace |
+| `server_info()` | Inspect server config (paths, GUI mode, headless launcher) |
 | `list_models()` | List model files in models directory |
 | `search_comses(query)` | Search the CoMSES Net model library |
 | `get_comses_model(uuid)` | Fetch metadata + citation text for one COMSES model |
