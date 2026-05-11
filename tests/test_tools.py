@@ -8,6 +8,7 @@ import pytest
 
 # We test the tool functions directly — they're async, so use pytest-asyncio.
 from netlogo_mcp.tools import (
+    close_model,
     command,
     create_model,
     export_view,
@@ -19,6 +20,7 @@ from netlogo_mcp.tools import (
     report,
     run_simulation,
     save_model,
+    server_info,
     set_parameter,
 )
 
@@ -145,6 +147,29 @@ async def test_run_simulation_negative_max_rows_rejected(mock_context, mock_nl):
         await run_simulation(10, ["count turtles"], mock_context, max_rows=-5)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_reporter", ["", "  ", None, 5])
+async def test_run_simulation_rejects_blank_or_non_string_reporters(
+    mock_context, mock_nl, bad_reporter
+):
+    """Each reporter must be a non-empty string — guard against empties
+    sneaking through and producing confusing NetLogo errors."""
+    mock_nl._model_loaded = True
+    with pytest.raises(Exception, match="reporters"):
+        await run_simulation(10, ["count turtles", bad_reporter], mock_context)
+
+
+# ── get_patch_data validation ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_attr", ["", "   "])
+async def test_get_patch_data_rejects_blank_attribute(mock_context, mock_nl, bad_attr):
+    mock_nl._model_loaded = True
+    with pytest.raises(Exception, match="attribute"):
+        await get_patch_data(bad_attr, mock_context)
+
+
 # ── set_parameter ────────────────────────────────────────────────────────────
 
 
@@ -184,6 +209,51 @@ async def test_set_parameter_string_with_backslash(mock_context, mock_nl):
     mock_nl._model_loaded = True
     result = await set_parameter("path", r"C:\temp", mock_context)
     assert r"C:\\temp" in result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bad_name",
+    [
+        "",  # empty
+        "1bad-start",  # leading digit
+        "name with space",
+        "name;setup",  # ; — would let "set name; setup" inject the second cmd
+        "$bad",
+        "name\nsetup",  # newline injection
+        "name\tsetup",
+        "../traversal",
+        "name) (",
+    ],
+)
+async def test_set_parameter_rejects_invalid_name(mock_context, mock_nl, bad_name):
+    """Variable names must be valid NetLogo identifiers — defense in depth
+    against command injection via the `set <name> <value>` interpolation."""
+    mock_nl._model_loaded = True
+    with pytest.raises(Exception, match="Invalid parameter name"):
+        await set_parameter(bad_name, 1, mock_context)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "good_name",
+    [
+        "speed",
+        "initial-number-sheep",
+        "show-energy?",
+        "use_legacy",
+        "x.y",
+        "go!",
+    ],
+)
+async def test_set_parameter_accepts_netlogo_identifiers(
+    mock_context, mock_nl, good_name
+):
+    """Real NetLogo names — kebab-case, with `?` / `!` / `.` — must be
+    accepted."""
+    mock_nl._model_loaded = True
+    result = await set_parameter(good_name, 1, mock_context)
+    assert good_name in result
 
 
 # ── get_world_state ──────────────────────────────────────────────────────────
@@ -360,3 +430,65 @@ async def test_export_world(mock_context, mock_nl):
     result = await export_world(mock_context)
     assert "exported" in result.lower()
     assert ".csv" in result
+
+
+# ── close_model ──────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_close_model_clears_workspace(mock_context, mock_nl, tmp_path):
+    """close_model issues clear-all and forgets the current model path."""
+    mock_nl._model_loaded = True
+    model_file = tmp_path / "test.nlogo"
+    model_file.write_text("to setup end")
+    await open_model(str(model_file), mock_context)
+    assert (
+        mock_context.request_context.lifespan_context["current_model_path"] is not None
+    )
+
+    result = await close_model(mock_context)
+    assert "closed" in result.lower()
+    assert mock_context.request_context.lifespan_context["current_model_path"] is None
+
+
+@pytest.mark.asyncio
+async def test_close_model_when_no_model_loaded(mock_context, mock_nl):
+    """close_model errors cleanly when nothing is loaded."""
+    mock_nl._model_loaded = True  # NetLogo workspace alive, but no model path tracked
+    mock_context.request_context.lifespan_context.pop("current_model_path", None)
+    with pytest.raises(Exception, match="No model"):
+        await close_model(mock_context)
+
+
+# ── server_info ──────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_server_info_basic_shape(mock_context, monkeypatch, tmp_path):
+    """server_info returns config snapshot, even when NETLOGO_HOME is unset."""
+    monkeypatch.delenv("NETLOGO_HOME", raising=False)
+    monkeypatch.setenv("NETLOGO_MODELS_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("NETLOGO_EXPORTS_DIR", str(tmp_path / "exports"))
+    result = await server_info(mock_context)
+    info = json.loads(result)
+    assert "server_version" in info
+    assert "gui_mode" in info
+    assert "models_dir" in info
+    assert "exports_dir" in info
+    # NETLOGO_HOME unset → reported as null with an error message.
+    assert info["netlogo_home"] is None
+    assert "netlogo_home_error" in info
+    assert info["headless_launcher"] is None
+
+
+@pytest.mark.asyncio
+async def test_server_info_includes_current_model(mock_context, mock_nl, tmp_path):
+    """server_info echoes the path of whatever model is currently loaded."""
+    mock_nl._model_loaded = True
+    model_file = tmp_path / "test.nlogo"
+    model_file.write_text("to setup end")
+    await open_model(str(model_file), mock_context)
+    result = await server_info(mock_context)
+    info = json.loads(result)
+    assert info["current_model_path"] is not None
+    assert info["current_model_path"].endswith("test.nlogo")

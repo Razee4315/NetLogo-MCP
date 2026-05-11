@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security & validation
+
+- `set_parameter` now validates the `name` argument against a NetLogo
+  identifier regex before interpolating it into a `set <name> <value>`
+  command. Closes a command-injection vector where a name like
+  `"x setup -- "` would have appended an arbitrary NetLogo command past
+  the `set`. Legitimate kebab-case + predicate names (`show-energy?`,
+  `initial-number-sheep`) are unaffected.
+- `run_simulation` rejects empty / non-string entries in `reporters`,
+  and `get_patch_data` rejects blank `attribute`s — these formerly
+  produced confusing NetLogo compile errors deep in the call.
+- 25 new tests cover the validation surface (injection-shape names,
+  blank reporters, blank attributes).
+
+### Added — workspace control & introspection
+
+- New `close_model` tool — issues `clear-all` and forgets the current
+  model path so AI clients can drop pending state without bouncing the
+  JVM (which costs 30-60s on the next startup).
+- New `server_info` tool — pure config / filesystem inspection that
+  returns server version, GUI mode, configured paths, and whether the
+  BehaviorSpace headless launcher is reachable. Useful as a pre-flight
+  check before launching long sweeps; does not require the JVM to be
+  warm.
+
+### Removed
+
+- Dead `get_or_create_netlogo` lazy-init helper in `server.py` — the
+  eager `lifespan()` startup is the only path now, and the duplicated
+  init was an attractive nuisance for future contributors.
+
 ### Added — BehaviorSpace integration & NetLogo 7 transition guide
 
 - 3 new tools for running NetLogo BehaviorSpace experiments:
