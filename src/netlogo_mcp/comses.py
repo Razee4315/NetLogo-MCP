@@ -357,6 +357,41 @@ def _json_or_raise(resp: httpx.Response, op: str) -> dict:
 # ── Zip safety + atomic extract ───────────────────────────────────────────────
 
 COMPLETION_MARKER = ".comses_complete"
+METADATA_SIDECAR = ".comses_metadata.json"
+
+
+def _write_metadata_sidecar(
+    cache_dir: Path, *, title: str | None, license_name: str | None
+) -> None:
+    """Persist title/license next to the completion marker.
+
+    Best-effort: an IO error here is non-fatal — the model is still usable,
+    we just lose the metadata-on-cache-hit optimization.
+    """
+    payload = {"title": title, "license_name": license_name}
+    try:
+        (cache_dir / METADATA_SIDECAR).write_text(json.dumps(payload), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _read_metadata_sidecar(cache_dir: Path) -> tuple[str | None, str | None]:
+    """Return (title, license_name) from the sidecar, or (None, None) if missing."""
+    p = cache_dir / METADATA_SIDECAR
+    if not p.is_file():
+        return None, None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+    title = data.get("title")
+    license_name = data.get("license_name")
+    return (
+        title if isinstance(title, str) else None,
+        license_name if isinstance(license_name, str) else None,
+    )
 
 
 def is_cache_trusted(cache_dir: Path) -> bool:
@@ -676,13 +711,14 @@ async def download_release(
 
     final_dir = cache_root / identifier / resolved
     if is_cache_trusted(final_dir):
+        cached_title, cached_license = _read_metadata_sidecar(final_dir)
         return _inspect_extracted(
             identifier=identifier,
             resolved_version=resolved,
             extracted_path=final_dir,
             cached=True,
-            title=None,
-            license_name=None,
+            title=cached_title,
+            license_name=cached_license,
         )
 
     # Fetch release + codebase metadata for title/license + the correct
@@ -735,6 +771,8 @@ async def download_release(
             max_bytes=max_bytes,
             tmp_root=tmp_root,
         )
+        # Persist metadata so future cache hits don't lose title/license.
+        _write_metadata_sidecar(final_dir, title=title, license_name=license_name)
     finally:
         try:
             tmp_zip.unlink(missing_ok=True)

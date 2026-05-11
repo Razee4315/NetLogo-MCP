@@ -3,11 +3,16 @@ BehaviorSpace experiment runner."""
 
 from __future__ import annotations
 
+import asyncio
 import json
+import math
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 import numpy as np
 import pandas as pd
@@ -21,6 +26,7 @@ from .config import (
     get_comses_cache_dir,
     get_comses_max_download_mb,
     get_exports_dir,
+    get_exports_max_files,
     get_gui_mode,
     get_models_dir,
     get_netlogo_home,
@@ -73,13 +79,173 @@ def _current_model_path(ctx: Context) -> str | None:
         return None
 
 
-def _require_model(ctx: Context):
-    """Raise ToolError if no model is currently loaded."""
-    nl = _nl(ctx)
+_NLOGOX_VERSION_FALLBACK = "NetLogo 7.0.3"
+
+
+_T = TypeVar("_T")
+
+
+class _NoopAsyncLock:
+    """No-op stand-in used when a context has no workspace_lock (e.g. unit tests)."""
+
+    async def __aenter__(self) -> _NoopAsyncLock:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        return None
+
+
+_NOOP_LOCK = _NoopAsyncLock()
+
+
+def _workspace_lock(ctx: Context):  # type: ignore[no-untyped-def]
+    """Return the lifespan's workspace lock, or a no-op for test contexts."""
     try:
-        # Use max-pxcor as a model-loaded check — it always works,
-        # even before reset-ticks (unlike "ticks" which errors pre-setup).
-        # Call directly (no wrapper) to avoid stdout/thread interference.
+        ls = _lifespan(ctx)
+    except ToolError:
+        return _NOOP_LOCK
+    lock = ls.get("workspace_lock")
+    return lock if lock is not None else _NOOP_LOCK
+
+
+def _prune_exports(dir_path: Path, *, glob: str) -> None:
+    """Rotate the oldest export files out once the cap is hit.
+
+    Looks only at files matching ``glob`` in ``dir_path`` (no recursion).
+    Best-effort: any IO error is silently ignored — retention is a
+    convenience, not a correctness property.
+    """
+    cap = get_exports_max_files()
+    if cap <= 0:
+        return
+    try:
+        files = sorted(dir_path.glob(glob), key=lambda p: p.stat().st_mtime)
+    except OSError:
+        return
+    excess = len(files) - cap
+    if excess <= 0:
+        return
+    for old in files[:excess]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
+
+def _check_restricted(netlogo_source: str) -> None:
+    """Reject dangerous NetLogo primitives when NETLOGO_MCP_RESTRICTED=true.
+
+    Filled in by the restricted-mode patch — kept as a no-op by default so
+    the unrestricted product flow is unchanged. The check scans for primitive
+    names that grant host I/O or shell escape (file-*, import-world, etc.).
+    """
+    import os as _os
+
+    if _os.environ.get("NETLOGO_MCP_RESTRICTED", "").lower() not in (
+        "true",
+        "1",
+        "yes",
+    ):
+        return
+    # Tokenize once on whitespace + punctuation that NetLogo treats as
+    # separators; match against an allowlist-by-negation list of bad prims.
+    blocked = {
+        "file-open",
+        "file-close",
+        "file-close-all",
+        "file-delete",
+        "file-write",
+        "file-print",
+        "file-read",
+        "file-read-line",
+        "file-read-characters",
+        "file-at-end?",
+        "file-flush",
+        "file-show",
+        "file-type",
+        "import-world",
+        "import-pcolors",
+        "import-pcolors-rgb",
+        "import-drawing",
+        "export-world",
+        "export-view",
+        "export-interface",
+        "export-output",
+        "export-plot",
+        "export-all-plots",
+        "set-current-directory",
+        "user-input",
+        "user-yes-or-no?",
+        "user-one-of",
+        "user-message",
+        "user-new-file",
+        "user-file",
+        "user-directory",
+        # Common extension entry points that escape the sandbox.
+        "sh:exec",
+        "py:run",
+        "py:runresult",
+        "py:set",
+        "web:get",
+        "web:post",
+    }
+    tokens = re.findall(r"[A-Za-z0-9_\-?!:.]+", netlogo_source.lower())
+    hits = [t for t in tokens if t in blocked]
+    if hits:
+        raise ToolError(
+            "NETLOGO_MCP_RESTRICTED=true blocks dangerous NetLogo primitives: "
+            f"{', '.join(sorted(set(hits)))}. Unset the env var or rewrite the "
+            "command without those prims."
+        )
+
+
+async def _jvm_call(
+    ctx: Context, fn: Callable[..., _T], *args: Any, **kwargs: Any
+) -> _T:
+    """Run a blocking JVM call under the workspace lock, off the event loop.
+
+    Combines two concerns:
+    - Workspace serialization: pynetlogo's NetLogoLink is a shared singleton;
+      concurrent calls race on the workspace's mutable state. The lock keeps
+      tool dispatch single-flight on the JVM.
+    - Event loop responsiveness: NetLogo's JNI calls block the calling thread
+      for the full duration (a 10k-tick run is seconds-to-minutes). Running
+      them via ``asyncio.to_thread`` keeps the MCP heartbeat alive.
+    """
+    async with _workspace_lock(ctx):
+        return await asyncio.to_thread(fn, *args, **kwargs)
+
+
+def _nlogox_version(ctx: Context) -> str:
+    """Return the NetLogo version string for embedding in a .nlogox envelope.
+
+    Prefers the live workspace's ``netlogo-version`` (captured at lifespan
+    start) so generated files match the actually-installed NetLogo. Falls
+    back to a hardcoded recent version when the workspace state isn't
+    populated (mostly: unit tests that build a context by hand).
+    """
+    try:
+        v = _lifespan(ctx).get("netlogo_version")
+    except ToolError:
+        return _NLOGOX_VERSION_FALLBACK
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    return _NLOGOX_VERSION_FALLBACK
+
+
+def _require_model(ctx: Context):
+    """Raise ToolError if no model is currently loaded.
+
+    Fast path: trust ``current_model_path`` (set by our own open_model /
+    create_model / open_comses_model). Avoids a JVM round-trip per tool call.
+    Slow path (path unknown): probe with ``max-pxcor`` — it always works on a
+    loaded model, even before reset-ticks. Necessary when the workspace was
+    populated outside our tool surface (e.g. tests calling tools directly).
+    """
+    nl = _nl(ctx)
+    if _current_model_path(ctx) is not None:
+        return nl
+    try:
         nl.report("max-pxcor")
     except Exception as exc:
         msg = str(exc)
@@ -154,7 +320,7 @@ async def open_model(path: str, ctx: Context) -> str:
         raise ToolError(f"Not a .nlogo/.nlogox file: {p}")
 
     try:
-        nl.load_model(str(p).replace("\\", "/"))
+        await _jvm_call(ctx, nl.load_model, str(p).replace("\\", "/"))
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -170,8 +336,9 @@ async def command(netlogo_command: str, ctx: Context) -> str:
         netlogo_command: The NetLogo command string to execute.
     """
     nl = _require_model(ctx)
+    _check_restricted(netlogo_command)
     try:
-        nl.command(netlogo_command)
+        await _jvm_call(ctx, nl.command, netlogo_command)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
     return f"OK: {netlogo_command}"
@@ -187,7 +354,7 @@ async def report(reporter: str, ctx: Context) -> str:
     """
     nl = _require_model(ctx)
     try:
-        result = nl.report(reporter)
+        result = await _jvm_call(ctx, nl.report, reporter)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
     return json.dumps(_json_safe(result))
@@ -232,9 +399,12 @@ async def run_simulation(
         raise ToolError("max_rows must be >= 0 (0 = no cap).")
 
     nl = _require_model(ctx)
+    _check_restricted(go_command)
 
     try:
-        results = nl.repeat_report(reporters, ticks, go=go_command)
+        results = await _jvm_call(
+            ctx, nl.repeat_report, reporters, ticks, go=go_command
+        )
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -308,6 +478,13 @@ async def set_parameter(name: str, value: Any, ctx: Context) -> str:
             "Must start with a letter and contain only letters, digits, "
             "or any of '-', '_', '.', '?', '!' (NetLogo's identifier rules)."
         )
+    # Reject non-finite floats up front — NetLogo has no nan/inf literal and
+    # would otherwise emit a cryptic "Nothing named NAN has been defined".
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ToolError(
+            f"value must be a finite number, got {value!r}. NetLogo has no "
+            "nan/inf literal."
+        )
     nl = _require_model(ctx)
     # Format the value for NetLogo
     if isinstance(value, bool):
@@ -320,7 +497,7 @@ async def set_parameter(name: str, value: Any, ctx: Context) -> str:
         nl_val = str(value)
 
     try:
-        nl.command(f"set {name} {nl_val}")
+        await _jvm_call(ctx, nl.command, f"set {name} {nl_val}")
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
     return f"OK: {name} = {nl_val}"
@@ -333,14 +510,14 @@ async def get_world_state(ctx: Context) -> str:
     Returns JSON with ticks, turtle/patch/link counts, and world bounds.
     """
     nl = _require_model(ctx)
-    try:
+
+    def _collect_state() -> dict[str, Any]:
         # ticks returns -1 before reset-ticks is called; guard against errors
         try:
             ticks_val = _json_safe(nl.report("ticks"))
         except Exception:
             ticks_val = -1  # model loaded but setup not yet run
-
-        state = {
+        return {
             "ticks": ticks_val,
             "turtle_count": _json_safe(nl.report("count turtles")),
             "patch_count": _json_safe(nl.report("count patches")),
@@ -350,6 +527,11 @@ async def get_world_state(ctx: Context) -> str:
             "min_pycor": _json_safe(nl.report("min-pycor")),
             "max_pycor": _json_safe(nl.report("max-pycor")),
         }
+
+    try:
+        # Batch the 8 reports into a single workspace-locked thread hop
+        # instead of 8 separate JVM round-trips.
+        state = await _jvm_call(ctx, _collect_state)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
     return json.dumps(state, indent=2)
@@ -360,6 +542,7 @@ async def get_patch_data(
     attribute: str,
     ctx: Context,
     summary_only: bool = False,
+    max_cells: int = 10000,
 ) -> str:
     """Get patch data as a 2D grid (useful for heatmaps / spatial analysis).
 
@@ -370,16 +553,25 @@ async def get_patch_data(
             ~10k cells of JSON to ~6 numbers — useful when you just want
             to know "is this attribute distributed widely?" without
             enumerating every patch.
+        max_cells: Upper bound on the number of grid cells returned in
+            full-grid mode. When the world exceeds the cap, rows and
+            columns are evenly downsampled (nearest-neighbor) to fit;
+            the response includes a ``downsampled_from`` field so the AI
+            knows it's seeing a subsample. Default 10000 (≈ 100×100).
+            Set to 0 to disable the cap (not recommended for large worlds).
 
     Returns:
         JSON 2D array (rows = y descending, cols = x ascending) by default,
-        or a compact summary dict if `summary_only=True`.
+        or a compact summary dict if `summary_only=True`. The full-grid
+        response may include a ``_meta`` sibling describing downsampling.
     """
     if not isinstance(attribute, str) or not attribute.strip():
         raise ToolError("attribute must be a non-empty string.")
+    if max_cells < 0:
+        raise ToolError("max_cells must be >= 0 (0 = no cap).")
     nl = _require_model(ctx)
     try:
-        data = nl.patch_report(attribute)
+        data = await _jvm_call(ctx, nl.patch_report, attribute)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -411,7 +603,145 @@ async def get_patch_data(
         return json.dumps(summary, indent=2)
 
     grid_list = grid.tolist() if hasattr(grid, "tolist") else _json_safe(grid)
+
+    # Downsample if the full grid would exceed max_cells. Nearest-neighbor
+    # row/col slicing preserves the spatial structure well enough for the
+    # AI to reason about heatmaps without blowing the context budget.
+    if (
+        max_cells > 0
+        and isinstance(grid_list, list)
+        and grid_list
+        and isinstance(grid_list[0], list)
+    ):
+        rows = len(grid_list)
+        cols = len(grid_list[0])
+        total = rows * cols
+        if total > max_cells:
+            scale = (max_cells / total) ** 0.5
+            new_rows = max(1, int(rows * scale))
+            new_cols = max(1, int(cols * scale))
+            row_step = max(1, rows // new_rows)
+            col_step = max(1, cols // new_cols)
+            sampled = [row[::col_step] for row in grid_list[::row_step]]
+            return json.dumps(
+                {
+                    "grid": sampled,
+                    "_meta": {
+                        "downsampled_from": [rows, cols],
+                        "returned_shape": [len(sampled), len(sampled[0])],
+                        "max_cells": max_cells,
+                        "note": (
+                            "Grid was downsampled to stay under max_cells. "
+                            "Use summary_only=True for stats only, or raise "
+                            "max_cells to see more cells."
+                        ),
+                    },
+                }
+            )
     return json.dumps(grid_list)
+
+
+# Default attributes returned by get_agent_sample when none are specified.
+_DEFAULT_AGENT_ATTRS: tuple[str, ...] = ("who", "xcor", "ycor", "color", "heading")
+
+
+@mcp.tool()
+async def get_agent_sample(
+    ctx: Context,
+    breed: str | None = None,
+    n: int = 10,
+    attributes: list[str] | None = None,
+) -> str:
+    """Return a sample of agents with selected variables as a markdown table.
+
+    Filling the gap between ``get_world_state`` (aggregates only) and
+    hand-crafted ``report`` calls. Picks N random agents from the named
+    breed (or all turtles when ``breed`` is None) and reports the requested
+    per-agent attributes.
+
+    Args:
+        breed: Agentset name, e.g. ``"sheep"``, ``"wolves"``. ``None`` means
+            ``turtles``. Must be a valid NetLogo identifier — letters,
+            digits, ``-``, ``_``, ``.``, ``?``, ``!`` — same rule as
+            ``set_parameter``.
+        n: Number of agents to sample (1-200). When N exceeds the agentset
+            size, every agent is returned.
+        attributes: Per-agent variables to report. Each entry must also be a
+            valid NetLogo identifier. Defaults to ``who``, ``xcor``, ``ycor``,
+            ``color``, ``heading``.
+
+    Returns:
+        Markdown table with one row per sampled agent and one column per
+        attribute. Empty agentsets return a one-line note.
+    """
+    if n < 1 or n > 200:
+        raise ToolError("n must be between 1 and 200.")
+
+    agentset = breed if breed is not None else "turtles"
+    if not _NETLOGO_IDENTIFIER_RE.match(agentset):
+        raise ToolError(
+            f"Invalid breed name: {agentset!r}. Use a valid NetLogo identifier."
+        )
+
+    # `None` ⇒ defaults. Explicit empty list ⇒ user error (silent fallback to
+    # defaults would mask a typo'd call).
+    if attributes is None:
+        attrs: tuple[str, ...] = _DEFAULT_AGENT_ATTRS
+    else:
+        if not attributes:
+            raise ToolError("attributes list cannot be empty.")
+        attrs = tuple(attributes)
+    for a in attrs:
+        if not isinstance(a, str) or not _NETLOGO_IDENTIFIER_RE.match(a):
+            raise ToolError(
+                f"Invalid attribute name: {a!r}. Use a valid NetLogo identifier."
+            )
+
+    nl = _require_model(ctx)
+    # Build a single reporter that returns [count, [[v1,v2,...], ...]] so we
+    # pay one JVM round-trip instead of one per attribute per agent.
+    attr_list = " ".join(attrs)
+    reporter = (
+        f"(list (count {agentset}) "
+        f"(map [a -> [(list {attr_list})] of a] "
+        f"(n-of (min (list {n} (count {agentset}))) {agentset})))"
+    )
+    try:
+        result = await _jvm_call(ctx, nl.report, reporter)
+    except Exception as e:
+        raise _wrap_netlogo_error(e) from e
+
+    # NetLogo returns nested Java lists / numpy arrays; coerce to plain Python.
+    safe = _json_safe(result)
+    try:
+        total = int(safe[0])
+        rows = list(safe[1])
+    except (IndexError, TypeError, ValueError):
+        return f"(could not parse agent sample for `{agentset}`: {safe!r})"
+
+    if total == 0:
+        return f"(agentset `{agentset}` is empty)"
+
+    lines = [
+        "| " + " | ".join(attrs) + " |",
+        "| " + " | ".join(["---"] * len(attrs)) + " |",
+    ]
+    for row in rows:
+        # Each row may itself be a single-element list-of-lists from the
+        # NetLogo `[(list ...)] of a` shape — flatten one level if needed.
+        if isinstance(row, list) and len(row) == 1 and isinstance(row[0], list):
+            row = row[0]
+        if not isinstance(row, list):
+            row = [row]
+        cells = " | ".join(str(_json_safe(v)) for v in row)
+        lines.append(f"| {cells} |")
+
+    sampled = len(rows)
+    if sampled < total:
+        lines.append(f"\n_Sampled {sampled} of {total} `{agentset}`._")
+    else:
+        lines.append(f"\n_Showed all {total} `{agentset}`._")
+    return "\n".join(lines)
 
 
 @mcp.tool()
@@ -427,9 +757,11 @@ async def export_view(ctx: Context) -> Image:
     export_path = str(views_dir / f"view_{timestamp}.png").replace("\\", "/")
 
     try:
-        nl.command(f'export-view "{export_path}"')
+        await _jvm_call(ctx, nl.command, f'export-view "{export_path}"')
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
+
+    _prune_exports(views_dir, glob="view_*.png")
 
     return Image(path=export_path)
 
@@ -447,7 +779,7 @@ async def create_model(code: str, ctx: Context) -> str:
 
     # If user provided raw procedures (not XML), wrap in .nlogox envelope
     if not code.strip().startswith("<?xml") and "<model" not in code[:200]:
-        code = _wrap_nlogox(code)
+        code = _wrap_nlogox(code, _nlogox_version(ctx))
 
     # Write to models directory and load
     models_dir = get_models_dir()
@@ -456,7 +788,7 @@ async def create_model(code: str, ctx: Context) -> str:
     model_path.write_text(code, encoding="utf-8")
 
     try:
-        nl.load_model(str(model_path).replace("\\", "/"))
+        await _jvm_call(ctx, nl.load_model, str(model_path).replace("\\", "/"))
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -464,15 +796,21 @@ async def create_model(code: str, ctx: Context) -> str:
     return f"Model created and loaded: {model_path}"
 
 
-def _wrap_nlogox(procedures: str) -> str:
-    """Wrap raw NetLogo procedure code in a minimal .nlogox XML envelope."""
-    # Escape XML special chars in the code for safe embedding
+def _wrap_nlogox(procedures: str, version: str = _NLOGOX_VERSION_FALLBACK) -> str:
+    """Wrap raw NetLogo procedure code in a minimal .nlogox XML envelope.
+
+    The ``version`` attribute is interpolated from the live workspace's
+    ``netlogo-version`` when available so saved files don't lie about what
+    NetLogo they were authored against.
+    """
+    # Escape XML special chars in the code and version for safe embedding
     import xml.sax.saxutils as saxutils
 
     escaped = saxutils.escape(procedures)
+    version_attr = saxutils.quoteattr(version)
 
     return f"""<?xml version="1.0" encoding="utf-8"?>
-<model version="NetLogo 7.0.3" snapToGrid="false">
+<model version={version_attr} snapToGrid="false">
   <code>{escaped}</code>
   <widgets>
     <view x="210" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="430" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="430" tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16" minPxcor="-16"></view>
@@ -565,7 +903,7 @@ async def save_model(name: str, code: str, ctx: Context) -> str:
 
     # Wrap in .nlogox envelope if raw procedures
     if not code.strip().startswith("<?xml") and "<model" not in code[:200]:
-        code = _wrap_nlogox(code)
+        code = _wrap_nlogox(code, _nlogox_version(ctx))
 
     file_path = models_dir / f"{name}.nlogox"
     file_path.write_text(code, encoding="utf-8")
@@ -589,9 +927,11 @@ async def export_world(ctx: Context) -> str:
     export_path = str(worlds_dir / f"world_{timestamp}.csv").replace("\\", "/")
 
     try:
-        nl.command(f'export-world "{export_path}"')
+        await _jvm_call(ctx, nl.command, f'export-world "{export_path}"')
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
+
+    _prune_exports(worlds_dir, glob="world_*.csv")
 
     return f"World exported to {export_path}"
 
@@ -618,7 +958,7 @@ async def close_model(ctx: Context) -> str:
         # patches, ticks, plots, and globals. We then forget the path so
         # subsequent BehaviorSpace / world-state tools refuse to run until
         # a new model is loaded.
-        nl.command("clear-all")
+        await _jvm_call(ctx, nl.command, "clear-all")
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
     _set_current_model_path(ctx, None)
@@ -1085,7 +1425,7 @@ async def open_comses_model(
     nl = _nl(ctx)
     path_str = str(outcome.selected_netlogo_file.resolve()).replace("\\", "/")
     try:
-        nl.load_model(path_str)
+        await _jvm_call(ctx, nl.load_model, path_str)
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
@@ -1211,8 +1551,9 @@ async def read_comses_files(
 
     # Collect every candidate file with its priority + path.
     all_files: list[Path] = [p for p in cache_dir.rglob("*") if p.is_file()]
-    # Never return the completion marker.
-    all_files = [p for p in all_files if p.name != _comses.COMPLETION_MARKER]
+    # Never return the completion marker or our metadata sidecar.
+    _internal_names = {_comses.COMPLETION_MARKER, _comses.METADATA_SIDECAR}
+    all_files = [p for p in all_files if p.name not in _internal_names]
 
     selected: list[tuple[int, str, Path]] = []
     omitted: dict[str, str] = {}

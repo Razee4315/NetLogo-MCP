@@ -56,7 +56,8 @@ By default, a real NetLogo window opens so you can watch your simulations run li
 | `run_simulation(ticks, reporters)` | Run N ticks, collect data as a table |
 | `set_parameter(name, value)` | Set a global variable / slider / switch |
 | `get_world_state()` | Get tick count, agent counts, world dimensions |
-| `get_patch_data(attribute)` | Get patch data as a 2D grid (for heatmaps) |
+| `get_agent_sample(breed, n, attributes)` | Sample N agents as a markdown table — fills the gap between counts and hand-crafted reporters |
+| `get_patch_data(attribute, max_cells)` | Get patch data as a 2D grid (for heatmaps); auto-downsamples above `max_cells` (default 10000) |
 | `export_view()` | Export current view as PNG image |
 | `save_model(name, code)` | Save model to file |
 | `export_world()` | Export full world state to CSV |
@@ -99,6 +100,17 @@ Safety properties (applied to every download):
 - Extraction is atomic: downloads land in a temp dir first, then move to the cache only on success.
 - Cache directories are trusted only when they carry the `.comses_complete` marker.
 - `"latest"` is resolved to a concrete version before any cache path is computed; the resolved version is returned to the AI so follow-up reads stay pinned to the same slot.
+
+## Security Model
+
+NetLogo MCP gives the connecting AI client **arbitrary file and process I/O on the host machine**, scoped to the user the server runs as. The `command` and `create_model` tools accept any NetLogo statement; NetLogo's standard primitives include `file-open` / `file-write-line` / `file-delete`, `export-world` / `import-world`, `set-current-directory`, and — via extensions — shell calls (`sh`), Python execution (`py`), and network I/O (`web`). Treat the trust boundary the same way you treat a local terminal: **only connect this server to AI clients you trust as much as a shell.**
+
+Concretely:
+
+- The stdio transport assumes the parent client is trusted. There is no auth, and adding it wouldn't help — the parent process owns the file descriptors.
+- The `models/` and `exports/` directories are writable by any tool call. Don't point `NETLOGO_MODELS_DIR` at a location you wouldn't `chmod o+w`.
+- Models downloaded via `open_comses_model` are extracted with path-traversal and zip-bomb guards (see CoMSES Net integration above), but **once loaded, any `command` call against them runs untrusted NetLogo code**. Read the ODD doc and skim the source before running setups on third-party models.
+- Future versions may ship an opt-in `NETLOGO_MCP_RESTRICTED=true` mode that blocks dangerous primitives. The default will remain unrestricted — the product is "let the AI drive NetLogo," and a restricted default would break the core flow.
 
 ## Prerequisites
 
@@ -202,6 +214,8 @@ JAVA_HOME=C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot
 | `NETLOGO_GUI` | No | `"true"` (default) for live GUI window, `"false"` for headless |
 | `NETLOGO_EXPORTS_DIR` | No | Directory for exported views/worlds (defaults to the current working directory's `./exports`) |
 | `COMSES_MAX_DOWNLOAD_MB` | No | Max CoMSES archive size in MB (default 50). Enforced mid-stream. |
+| `NETLOGO_EXPORTS_MAX_FILES` | No | Max files retained in each `exports/` subdirectory (default 200). Oldest are pruned after each `export_view` / `export_world`. Set to `0` to disable. |
+| `NETLOGO_MCP_RESTRICTED` | No | Set to `"true"` to block dangerous NetLogo primitives (`file-*`, `import-world`, `set-current-directory`, extension shell escapes). Off by default — see Security Model. |
 
 ## Client Setup
 
