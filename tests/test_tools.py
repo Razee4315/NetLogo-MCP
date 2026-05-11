@@ -13,6 +13,7 @@ from netlogo_mcp.tools import (
     create_model,
     export_view,
     export_world,
+    get_agent_sample,
     get_patch_data,
     get_world_state,
     list_models,
@@ -189,6 +190,18 @@ async def test_set_parameter_bool(mock_context, mock_nl):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
+async def test_set_parameter_rejects_non_finite_floats(
+    mock_context, mock_nl, bad_value
+):
+    """nan/inf have no NetLogo literal — surface a clear error before
+    interpolating them into a `set ...` command."""
+    mock_nl._model_loaded = True
+    with pytest.raises(Exception, match="finite"):
+        await set_parameter("speed", bad_value, mock_context)
+
+
+@pytest.mark.asyncio
 async def test_set_parameter_string(mock_context, mock_nl):
     mock_nl._model_loaded = True
     result = await set_parameter("label-text", "hello", mock_context)
@@ -254,6 +267,75 @@ async def test_set_parameter_accepts_netlogo_identifiers(
     mock_nl._model_loaded = True
     result = await set_parameter(good_name, 1, mock_context)
     assert good_name in result
+
+
+# ── get_agent_sample ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_n", [0, -3, 201, 1000])
+async def test_get_agent_sample_rejects_bad_n(mock_context, mock_nl, bad_n):
+    mock_nl._model_loaded = True
+    with pytest.raises(Exception, match="n must"):
+        await get_agent_sample(mock_context, n=bad_n)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_breed", ["bad name", "1bad", "x;y", "../traversal"])
+async def test_get_agent_sample_rejects_bad_breed(mock_context, mock_nl, bad_breed):
+    mock_nl._model_loaded = True
+    with pytest.raises(Exception, match="Invalid breed"):
+        await get_agent_sample(mock_context, breed=bad_breed)
+
+
+@pytest.mark.asyncio
+async def test_get_agent_sample_rejects_bad_attribute(mock_context, mock_nl):
+    mock_nl._model_loaded = True
+    with pytest.raises(Exception, match="Invalid attribute"):
+        await get_agent_sample(mock_context, attributes=["xcor", "bad name"])
+
+
+@pytest.mark.asyncio
+async def test_get_agent_sample_empty_attributes_rejected(mock_context, mock_nl):
+    mock_nl._model_loaded = True
+    with pytest.raises(Exception, match="attributes"):
+        await get_agent_sample(mock_context, attributes=[])
+
+
+@pytest.mark.asyncio
+async def test_get_agent_sample_renders_table(mock_context, mock_nl):
+    """When the mock returns a [count, rows] shape, the table is rendered."""
+    mock_nl._model_loaded = True
+    original_report = mock_nl.report
+
+    def report_with_agents(reporter):
+        if reporter.startswith("(list (count "):
+            # Return shape: [total_count, [[v1,v2,...], ...]]
+            return [3, [[0, 1.0, 2.0], [1, 3.0, 4.0], [2, 5.0, 6.0]]]
+        return original_report(reporter)
+
+    mock_nl.report = report_with_agents
+    result = await get_agent_sample(
+        mock_context, breed="turtles", n=10, attributes=["who", "xcor", "ycor"]
+    )
+    assert "| who | xcor | ycor |" in result
+    assert "| 0 | 1.0 | 2.0 |" in result
+    assert "Showed all 3" in result
+
+
+@pytest.mark.asyncio
+async def test_get_agent_sample_empty_agentset_returns_note(mock_context, mock_nl):
+    mock_nl._model_loaded = True
+    original_report = mock_nl.report
+
+    def report_empty(reporter):
+        if reporter.startswith("(list (count "):
+            return [0, []]
+        return original_report(reporter)
+
+    mock_nl.report = report_empty
+    result = await get_agent_sample(mock_context, breed="sheep")
+    assert "empty" in result.lower()
 
 
 # ── get_world_state ──────────────────────────────────────────────────────────

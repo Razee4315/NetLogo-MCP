@@ -527,9 +527,18 @@ def test_safe_output_name_strips_unsafe_chars():
     assert bspace.safe_output_name("!!!") == "experiment"
 
 
-def test_quote_for_cmd_handles_spaces_and_quotes():
-    # Internal helper, but worth exercising — used on Windows .bat invocation.
-    assert bspace._quote_for_cmd("simple") == "simple"
-    assert bspace._quote_for_cmd("with spaces") == '"with spaces"'
-    assert bspace._quote_for_cmd('has"quote') == '"has\\"quote"'
-    assert bspace._quote_for_cmd("") == '""'
+def test_sanitize_experiment_name_strips_unsafe_chars():
+    # CoMSES models can ship experiment names with arbitrary characters;
+    # we keep only `[A-Za-z0-9 _\-.]+` for the argv that lands on a child
+    # process, so cmd metacharacters never reach the shell.
+    assert bspace._sanitize_experiment_name("Saved Sweep") == "Saved Sweep"
+    assert bspace._sanitize_experiment_name("simple") == "simple"
+    assert bspace._sanitize_experiment_name("name v1.0") == "name v1.0"
+    # Quote and `&` become `_`; spaces survive (allowed in the charset).
+    assert (
+        bspace._sanitize_experiment_name('foo" & calc & "bar') == "foo_ _ calc _ _bar"
+    )
+    assert bspace._sanitize_experiment_name("a%b!c") == "a_b_c"
+    # Pure-junk falls back to the default name.
+    assert bspace._sanitize_experiment_name("@@@") == "experiment"
+    assert bspace._sanitize_experiment_name("") == "experiment"

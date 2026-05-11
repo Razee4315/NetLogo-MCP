@@ -38,6 +38,7 @@ from typing import Any
 from xml.sax.saxutils import escape as xml_escape
 
 import pandas as pd
+from defusedxml import ElementTree as DefusedET
 
 
 class BSpaceError(Exception):
@@ -290,7 +291,9 @@ def parse_experiments(model_path: Path) -> list[ExperimentSpec]:
         return []
     xml_blob = text[start : end + len("</experiments>")]
     try:
-        root = ET.fromstring(xml_blob)  # noqa: S314 — local file, our content
+        # Use defusedxml: model files may originate from CoMSES (untrusted).
+        # Guards against entity-expansion / billion-laughs / external-DTD attacks.
+        root = DefusedET.fromstring(xml_blob)
     except ET.ParseError as exc:
         raise BSpaceError(f"could not parse <experiments> XML: {exc}") from exc
 
@@ -494,22 +497,27 @@ def run_headless(
     if not model_path.exists():
         raise BSpaceError(f"model not found: {model_path}")
 
+    safe_name = _sanitize_experiment_name(experiment_name) if experiment_name else None
+
     args: list[str] = [str(launcher)]
     if launcher.name.lower().startswith("netlogo_console"):
         args.append("--headless")
     args += ["--model", str(model_path)]
     if setup_file is not None:
         args += ["--setup-file", str(setup_file)]
-    if experiment_name:
-        args += ["--experiment", experiment_name]
+    if safe_name:
+        args += ["--experiment", safe_name]
     args += ["--table", str(table_csv)]
     if threads is not None and threads > 0:
         args += ["--threads", str(threads)]
     if is_3d:
         args.append("--3D")
 
-    # On Windows, .bat files need shell=True or invocation via cmd.exe.
-    use_shell = launcher.suffix.lower() == ".bat"
+    # On Windows, `.bat` files need a shell to resolve. Use cmd.exe /c with
+    # shell=False so Python passes argv directly — no hand-rolled cmd quoting,
+    # no metacharacter risk from third-party experiment names in CoMSES models.
+    if launcher.suffix.lower() == ".bat":
+        args = ["cmd.exe", "/c"] + args
 
     table_csv.parent.mkdir(parents=True, exist_ok=True)
     # Wipe any previous run for this exact target — NetLogo will refuse or
@@ -526,24 +534,13 @@ def run_headless(
     stderr_tail = ""
 
     try:
-        if use_shell:
-            cmd_str = " ".join(_quote_for_cmd(a) for a in args)
-            proc = subprocess.run(
-                cmd_str,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=timeout_seconds,
-                env=os.environ.copy(),
-            )
-        else:
-            proc = subprocess.run(
-                args,
-                capture_output=True,
-                text=True,
-                timeout=timeout_seconds,
-                env=os.environ.copy(),
-            )
+        proc = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            env=os.environ.copy(),
+        )
         return_code = proc.returncode
         stderr_tail = (proc.stderr or "")[-2000:]
     except subprocess.TimeoutExpired as exc:
@@ -569,14 +566,20 @@ def run_headless(
     )
 
 
-def _quote_for_cmd(arg: str) -> str:
-    """Quote an arg for Windows ``cmd /c`` invocation."""
-    if not arg:
-        return '""'
-    if any(ch in arg for ch in (" ", "\t", '"', "&", "|", "<", ">", "^")):
-        escaped = arg.replace('"', '\\"')
-        return f'"{escaped}"'
-    return arg
+def _sanitize_experiment_name(name: str) -> str:
+    """Restrict a BehaviorSpace experiment name to a safe charset for `--experiment`.
+
+    Saved-experiment names can originate from CoMSES model XML (untrusted).
+    BehaviorSpace itself is happy with reasonably free-form names, but we
+    keep the surface that lands on a child process's argv to ``[A-Za-z0-9
+    _\\- .]+`` — every char outside that set is replaced with ``_``.
+    Pure-empty results fall back to ``"experiment"``.
+    """
+    cleaned = "".join(c if (c.isalnum() or c in "-_ .") else "_" for c in name)
+    # Trim surrounding whitespace / underscores so an all-junk input
+    # ("@@@") collapses to the fallback instead of "___".
+    cleaned = cleaned.strip(" _")
+    return cleaned or "experiment"
 
 
 # ── Table CSV parsing ─────────────────────────────────────────────────────────

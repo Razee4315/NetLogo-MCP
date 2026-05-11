@@ -11,6 +11,7 @@ import sys
 _real_stdout = sys.stdout
 sys.stdout = sys.stderr
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
@@ -86,7 +87,29 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
         )
     logger.info("NetLogo workspace ready (%s) — all tools available", mode_str)
 
-    state: dict[str, Any] = {"netlogo": nl, "current_model_path": None}
+    # Capture the actual NetLogo version so generated .nlogox envelopes match
+    # what's actually loaded. `netlogo-version` reports e.g. "NetLogo 7.0.3"
+    # and works even before any model is loaded. Failure is non-fatal —
+    # _wrap_nlogox falls back to a sensible default if the report is missing.
+    netlogo_version: str | None = None
+    try:
+        with protect_stdout():
+            raw = nl.report("netlogo-version")
+        if isinstance(raw, str) and raw.strip():
+            netlogo_version = raw.strip()
+            logger.info("Detected %s", netlogo_version)
+    except Exception:
+        logger.debug("Could not read netlogo-version; falling back to default")
+
+    state: dict[str, Any] = {
+        "netlogo": nl,
+        "current_model_path": None,
+        "netlogo_version": netlogo_version,
+        # Single-flight lock: NetLogo's JVM workspace is shared mutable state,
+        # so concurrent tool calls would race on ticks/agentsets/globals.
+        # Every tool that touches the JVM must acquire this before dispatching.
+        "workspace_lock": asyncio.Lock(),
+    }
     try:
         yield state
     finally:

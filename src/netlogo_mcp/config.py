@@ -93,6 +93,22 @@ def get_comses_cache_dir() -> Path:
     return p
 
 
+def get_exports_max_files() -> int:
+    """Cap on how many files to keep in each exports subdirectory.
+
+    ``export_view`` and ``export_world`` rotate the oldest files out once
+    they exceed this count, so a long-lived session can't fill the disk.
+    Default 200 per subdirectory. Set ``NETLOGO_EXPORTS_MAX_FILES=0`` to
+    disable retention entirely.
+    """
+    val = os.environ.get("NETLOGO_EXPORTS_MAX_FILES", "200")
+    try:
+        n = int(val)
+    except ValueError:
+        return 200
+    return max(0, n)
+
+
 def get_exports_dir() -> Path:
     """Return the directory where exported images and worlds are saved.
 
