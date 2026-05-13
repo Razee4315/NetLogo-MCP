@@ -431,9 +431,9 @@ def test_race_orphan_without_marker_is_wiped_and_retried(tmp_path):
 
     comses.safe_extract_zip(archive, final, max_bytes=10_000_000)
     assert (final / comses.COMPLETION_MARKER).is_file()
-    assert not (final / "stale.txt").exists(), (
-        "Orphan should have been wiped before retry"
-    )
+    assert not (
+        final / "stale.txt"
+    ).exists(), "Orphan should have been wiped before retry"
 
 
 def test_race_peer_writer_with_marker_is_respected(tmp_path):
