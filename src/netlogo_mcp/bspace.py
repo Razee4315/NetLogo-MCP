@@ -180,7 +180,7 @@ def _format_value(v: Any) -> str:
     """Render a parameter value the way BehaviorSpace's XML reader expects."""
     if isinstance(v, bool):
         return "true" if v else "false"
-    if isinstance(v, (int, float)):
+    if isinstance(v, int | float):
         # NetLogo accepts numeric literals; keep ints as ints.
         if isinstance(v, float) and v.is_integer():
             return str(int(v))

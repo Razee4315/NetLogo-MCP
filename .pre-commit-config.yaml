@@ -12,5 +12,5 @@ repos:
       - id: mypy
         additional_dependencies:
           - types-setuptools
-        args: [--config-file=pyproject.toml]
+        args: [--config-file=pyproject.toml, src/netlogo_mcp/]
         pass_filenames: false

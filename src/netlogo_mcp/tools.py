@@ -284,9 +284,9 @@ def _wrap_netlogo_error(e: Exception) -> ToolError:
 
 def _json_safe(value: Any) -> Any:
     """Make a value JSON-serializable (handles numpy/Java types)."""
-    if isinstance(value, (np.integer,)):
+    if isinstance(value, np.integer):
         return int(value)
-    if isinstance(value, (np.floating,)):
+    if isinstance(value, np.floating):
         return float(value)
     if isinstance(value, np.ndarray):
         return value.tolist()
