@@ -47,6 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   procedure made the whole model fail to load.
 - `to setup-patches` no longer falsely counts as defining `setup`.
 
+### Added — update_model
+
+- New `update_model(code, widgets?)` tool: rewrites the currently loaded
+  `.nlogox` in place and reloads it. Existing widgets are preserved when
+  `widgets` is omitted, so iterating on procedures keeps the interface the
+  user already has. Ends the one-`_created_*.nlogox`-file-per-iteration
+  clutter in the models directory.
+
 ### Added — declarative interface widgets
 
 - `create_model` and `save_model` accept an optional `widgets` list:

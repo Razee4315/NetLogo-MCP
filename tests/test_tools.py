@@ -780,3 +780,99 @@ async def test_save_model_with_widgets(mock_context, tmp_path, monkeypatch):
     )
     content = (tmp_path / "widgety.nlogox").read_text(encoding="utf-8")
     assert 'variable="wrap?"' in content and 'on="false"' in content
+
+
+# ── update_model ─────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_update_model_requires_loaded_model(mock_context):
+    from fastmcp.exceptions import ToolError
+
+    from netlogo_mcp.tools import update_model
+
+    with pytest.raises(ToolError, match="No model is loaded"):
+        await update_model("to setup\nend", mock_context)
+
+
+@pytest.mark.asyncio
+async def test_update_model_rewrites_in_place_and_keeps_widgets(
+    mock_context, mock_nl, tmp_path, monkeypatch
+):
+    from netlogo_mcp.tools import update_model
+
+    monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: tmp_path)
+    await create_model(
+        "to setup\n  clear-all\nend",
+        mock_context,
+        widgets=[
+            {
+                "type": "slider",
+                "variable": "density",
+                "min": 0,
+                "max": 100,
+                "default": 60,
+            },
+            {"type": "button", "code": "setup", "label": "Setup"},
+        ],
+    )
+    assert len(list(tmp_path.glob("*.nlogox"))) == 1
+
+    result = await update_model(
+        "to setup\n  clear-all\n  create-turtles density\nend", mock_context
+    )
+    assert "existing widgets kept" in result
+    files = list(tmp_path.glob("*.nlogox"))
+    assert len(files) == 1  # same file rewritten, no new _created_* clutter
+    content = files[0].read_text(encoding="utf-8")
+    assert "create-turtles density" in content  # new code in place
+    assert 'variable="density"' in content  # slider survived the update
+
+
+@pytest.mark.asyncio
+async def test_update_model_replaces_widgets_when_given(
+    mock_context, mock_nl, tmp_path, monkeypatch
+):
+    from netlogo_mcp.tools import update_model
+
+    monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: tmp_path)
+    await create_model(
+        "to setup\nend",
+        mock_context,
+        widgets=[{"type": "slider", "variable": "density", "min": 0, "max": 100}],
+    )
+    await update_model(
+        "to setup\nend",
+        mock_context,
+        widgets=[{"type": "switch", "variable": "trails?", "default": True}],
+    )
+    content = next(tmp_path.glob("*.nlogox")).read_text(encoding="utf-8")
+    assert 'variable="trails?"' in content
+    assert 'variable="density"' not in content
+
+
+@pytest.mark.asyncio
+async def test_update_model_rejects_full_xml(
+    mock_context, mock_nl, tmp_path, monkeypatch
+):
+    from fastmcp.exceptions import ToolError
+
+    from netlogo_mcp.tools import update_model
+
+    monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: tmp_path)
+    await create_model("to setup\nend", mock_context)
+    with pytest.raises(ToolError, match="raw NetLogo procedures"):
+        await update_model('<?xml version="1.0"?><model></model>', mock_context)
+
+
+@pytest.mark.asyncio
+async def test_update_model_rejects_legacy_nlogo(mock_context, mock_nl, tmp_path):
+    from fastmcp.exceptions import ToolError
+
+    from netlogo_mcp.tools import update_model
+
+    legacy = tmp_path / "old.nlogo"
+    legacy.write_text("to setup end")
+    await open_model(str(legacy), mock_context)
+    with pytest.raises(ToolError, match="legacy .nlogo"):
+        await update_model("to setup\nend", mock_context)

@@ -868,6 +868,92 @@ async def create_model(
     return f"Model created and loaded: {model_path}"
 
 
+def _replace_in_nlogox(
+    path: Path, code: str, widgets: list[dict[str, Any]] | None
+) -> str:
+    """Rewrite the ``<code>`` (and optionally ``<widgets>``) of a .nlogox file.
+
+    Everything else — info tab, shapes, existing widgets when ``widgets`` is
+    None — is preserved, so iterating on procedures doesn't clobber an
+    interface the user (or an earlier call) already set up.
+    """
+    import xml.etree.ElementTree as ET
+
+    try:
+        tree = ET.parse(path)
+    except ET.ParseError as exc:
+        raise ToolError(f"Could not parse {path.name} as .nlogox XML: {exc}") from exc
+    root = tree.getroot()
+
+    code_el = root.find("code")
+    if code_el is None:
+        code_el = ET.Element("code")
+        root.insert(0, code_el)
+    code_el.text = code
+
+    if widgets is not None:
+        new_widgets = ET.fromstring(
+            f"<widgets>{_render_widgets(code, widgets)}</widgets>"
+        )
+        old_widgets = root.find("widgets")
+        if old_widgets is not None:
+            idx = list(root).index(old_widgets)
+            root.remove(old_widgets)
+            root.insert(idx, new_widgets)
+        else:
+            root.insert(1, new_widgets)
+
+    body = ET.tostring(root, encoding="unicode")
+    return f'<?xml version="1.0" encoding="utf-8"?>\n{body}\n'
+
+
+@mcp.tool()
+async def update_model(
+    code: str, ctx: Context, widgets: list[dict[str, Any]] | None = None
+) -> str:
+    """Update the currently loaded model's code in place and reload it.
+
+    Prefer this over create_model when iterating on an existing model: the
+    same .nlogox file is rewritten and reloaded, so the NetLogo window stays
+    on one model and the models directory doesn't grow a new file per
+    iteration.
+
+    Args:
+        code: New NetLogo procedures — a FULL replacement of the code tab,
+              not a diff. Raw procedures only (no .nlogox XML).
+        widgets: Optional new interface widgets (same schema as
+              create_model). When omitted, the model's existing widgets are
+              preserved unchanged — sliders keep their positions and values.
+    """
+    current = _current_model_path(ctx)
+    if current is None:
+        raise ToolError("No model is loaded. Use create_model or open_model first.")
+    path = Path(current)
+    if path.suffix != ".nlogox":
+        raise ToolError(
+            f"update_model only supports .nlogox models; {path.name} is a "
+            "legacy .nlogo file. Use create_model to make an editable copy."
+        )
+    if code.strip().startswith("<?xml") or "<model" in code[:200]:
+        raise ToolError(
+            "update_model takes raw NetLogo procedures, not a full .nlogox "
+            "document — pass full XML to create_model instead."
+        )
+
+    nl = _nl(ctx)  # a model is loaded, so the JVM is already up
+
+    new_xml = _replace_in_nlogox(path, code, widgets)
+    path.write_text(new_xml, encoding="utf-8")
+
+    try:
+        await _jvm_call(ctx, nl.load_model, str(path).replace("\\", "/"))
+    except Exception as e:
+        raise _wrap_netlogo_error(e) from e
+
+    kept = "existing widgets kept" if widgets is None else "widgets replaced"
+    return f"Model updated and reloaded: {path.name} ({kept})"
+
+
 # ── Widget generation ────────────────────────────────────────────────────────
 # Widgets stack in a left column; the view sits to their right at x=210.
 _WIDGET_X = 10

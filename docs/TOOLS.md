@@ -8,6 +8,7 @@ workflow, and CoMSES Net integration details.
 | Tool | Description |
 |------|-------------|
 | `create_model(code, widgets?)` | Create a new model from NetLogo code (envelope + widgets added automatically) |
+| `update_model(code, widgets?)` | Rewrite the loaded model's code **in place** and reload — existing widgets are preserved unless new ones are given. Prefer this over `create_model` when iterating. |
 | `open_model(path)` | Load an existing .nlogo/.nlogox model |
 | `command(netlogo_command)` | Execute a NetLogo command (setup, go, etc.) |
 | `report(reporter)` | Evaluate a reporter expression |
