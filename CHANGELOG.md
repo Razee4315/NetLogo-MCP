@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-06-06
+
+### Fixed
+
+- MCP Registry namespace casing: the registry's GitHub OIDC grant is
+  case-sensitive (`io.github.Razee4315/*`), so the server name and the
+  README ownership marker now use the exact GitHub username casing.
+  v1.0.1's registry publish failed on this; PyPI and the GitHub Release
+  were unaffected.
+
 ## [1.0.1] - 2026-06-06
 
 ### Added — official MCP Registry listing
