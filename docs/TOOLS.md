@@ -13,6 +13,7 @@ workflow, and CoMSES Net integration details.
 | `command(netlogo_command)` | Execute a NetLogo command (setup, go, etc.) |
 | `report(reporter)` | Evaluate a reporter expression |
 | `run_simulation(ticks, reporters)` | Run N ticks, collect data as a table |
+| `watch_simulation(ticks, delay_ms?)` | Run slowly (a pause between steps) so a human can watch the GUI window — for demos and teaching |
 | `set_parameter(name, value)` | Set a global variable / slider / switch |
 | `get_world_state()` | Get tick count, agent counts, world dimensions |
 | `get_agent_sample(breed, n, attributes)` | Sample N agents as a markdown table — fills the gap between counts and hand-crafted reporters |

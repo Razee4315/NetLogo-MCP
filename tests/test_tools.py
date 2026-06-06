@@ -937,3 +937,48 @@ def test_plot_widget_validation(bad_plot, err_match):
 
     with pytest.raises(ToolError, match=err_match):
         _wrap_nlogox("to setup\nend", widgets=[bad_plot])
+
+
+# ── watch_simulation ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_watch_simulation_runs_go_per_step(mock_context, mock_nl):
+    from netlogo_mcp.tools import watch_simulation
+
+    mock_nl._model_loaded = True
+    calls = []
+    original = mock_nl.command
+    mock_nl.command = lambda cmd: (calls.append(cmd), original(cmd))[1]
+
+    result = await watch_simulation(3, mock_context, delay_ms=10)
+    assert calls == ["go", "go", "go"]
+    assert "3 steps" in result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ticks,delay,err",
+    [
+        (0, 100, "ticks must be"),
+        (5000, 100, "ticks must be"),
+        (10, 5, "delay_ms must be"),
+        (10, 9999, "delay_ms must be"),
+        (2000, 2000, "120s cap"),
+    ],
+)
+async def test_watch_simulation_validation(mock_context, mock_nl, ticks, delay, err):
+    from fastmcp.exceptions import ToolError
+
+    from netlogo_mcp.tools import watch_simulation
+
+    mock_nl._model_loaded = True
+    with pytest.raises(ToolError, match=err):
+        await watch_simulation(ticks, mock_context, delay_ms=delay)
+
+
+def test_polish_gui_window_noop_without_jvm():
+    """Must never raise — cosmetic only, and headless/JVM-less is normal."""
+    from netlogo_mcp.tools import _polish_gui_window
+
+    _polish_gui_window("NetLogo — anything")  # no JVM in unit tests: silent no-op

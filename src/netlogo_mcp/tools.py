@@ -310,6 +310,33 @@ def _require_model(ctx: Context):
     return nl
 
 
+def _polish_gui_window(title: str) -> None:
+    """Best-effort: title the NetLogo window and bring it to front.
+
+    Posts the work to the Swing event thread via ``invokeLater``. Silently a
+    no-op when headless (``App.app()`` is unset), when the JVM isn't up, or
+    when NetLogo internals change — window polish must never fail a load.
+    """
+    try:
+        import jpype
+
+        if not jpype.isJVMStarted():
+            return
+        frame = jpype.JClass("org.nlogo.app.App").app().frame()
+
+        def _apply() -> None:
+            try:
+                frame.setTitle(title)
+                frame.toFront()
+            except Exception:  # cosmetic only — never propagate
+                pass
+
+        runnable = jpype.JProxy("java.lang.Runnable", dict={"run": _apply})
+        jpype.JClass("java.awt.EventQueue").invokeLater(runnable)
+    except Exception:
+        return
+
+
 def _wrap_netlogo_error(e: Exception) -> ToolError:
     """Convert a Java/NetLogo exception to a readable ToolError."""
     msg = str(e)
@@ -372,6 +399,7 @@ async def open_model(path: str, ctx: Context) -> str:
         raise _wrap_netlogo_error(e) from e
 
     _set_current_model_path(ctx, p)
+    _polish_gui_window(f"NetLogo — {p.stem}")
     return f"Model loaded: {p.name}"
 
 
@@ -474,6 +502,49 @@ async def run_simulation(
         lines.append(f"| {tick} | {vals} |")
 
     return "\n".join(lines)
+
+
+@mcp.tool()
+async def watch_simulation(
+    ticks: int,
+    ctx: Context,
+    delay_ms: int = 150,
+    go_command: str = "go",
+) -> str:
+    """Run the simulation SLOWLY so a human can watch it in the GUI window.
+
+    Unlike run_simulation (full speed, returns data), this steps `go` once
+    per tick with a pause between steps — use it for demos and teaching when
+    the user wants to see the dynamics unfold live. In headless mode it
+    works but there's nothing to watch; prefer run_simulation there.
+
+    Args:
+        ticks: Steps to run (1-2000).
+        delay_ms: Pause between steps in milliseconds (10-2000, default 150).
+            ticks x delay_ms must stay under 120 seconds — chain calls for
+            longer demos.
+        go_command: The command to run each step (default "go").
+    """
+    if not 1 <= ticks <= 2000:
+        raise ToolError("ticks must be between 1 and 2000.")
+    if not 10 <= delay_ms <= 2000:
+        raise ToolError("delay_ms must be between 10 and 2000.")
+    if ticks * delay_ms > 120_000:
+        raise ToolError(
+            f"ticks x delay_ms = {ticks * delay_ms}ms exceeds the 120s cap — "
+            "lower one of them and chain calls for longer demos."
+        )
+    nl = _require_model(ctx)
+    _check_restricted(go_command)
+
+    for _ in range(ticks):
+        try:
+            await _jvm_call(ctx, nl.command, go_command)
+        except Exception as e:
+            raise _wrap_netlogo_error(e) from e
+        await asyncio.sleep(delay_ms / 1000)
+
+    return f"Watched {ticks} steps at {delay_ms}ms per step."
 
 
 def _decimate_keep_last(df: pd.DataFrame, max_rows: int) -> pd.DataFrame:
@@ -871,6 +942,7 @@ async def create_model(
         raise _wrap_netlogo_error(e) from e
 
     _set_current_model_path(ctx, model_path)
+    _polish_gui_window(f"NetLogo — {model_path.stem}")
     return f"Model created and loaded: {model_path}"
 
 
@@ -956,6 +1028,7 @@ async def update_model(
     except Exception as e:
         raise _wrap_netlogo_error(e) from e
 
+    _polish_gui_window(f"NetLogo — {path.stem}")
     kept = "existing widgets kept" if widgets is None else "widgets replaced"
     return f"Model updated and reloaded: {path.name} ({kept})"
 
@@ -1856,6 +1929,7 @@ async def open_comses_model(
         raise _wrap_netlogo_error(e) from e
 
     _set_current_model_path(ctx, outcome.selected_netlogo_file.resolve())
+    _polish_gui_window(f"NetLogo — {outcome.selected_netlogo_file.stem}")
     payload["status"] = "loaded_netlogo"
     payload["message"] = (
         f"Loaded NetLogo model: {outcome.selected_netlogo_file.name} "

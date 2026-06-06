@@ -47,6 +47,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   procedure made the whole model fail to load.
 - `to setup-patches` no longer falsely counts as defining `setup`.
 
+### Added — GUI polish
+
+- The NetLogo window is retitled to the model name and brought to the
+  front whenever a model is loaded (`create_model` / `open_model` /
+  `update_model` / `open_comses_model`). Best-effort via the Swing event
+  thread; silent no-op in headless mode.
+- New `watch_simulation(ticks, delay_ms)` tool — runs `go` step-by-step
+  with a pause between steps so a human can actually watch the dynamics
+  unfold in the GUI. Capped at 120s per call; `run_simulation` remains the
+  full-speed data-collection path.
+
 ### Added — plot widgets
 
 - The `widgets` schema now supports `{"type": "plot", "pens": [...]}` —
