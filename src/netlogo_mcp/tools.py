@@ -891,7 +891,7 @@ def _has_procedure(code: str, name: str) -> bool:
 
 def _require_finite_number(spec: dict[str, Any], key: str, i: int) -> float:
     val = spec.get(key)
-    if isinstance(val, bool) or not isinstance(val, (int, float)):
+    if isinstance(val, bool) or not isinstance(val, int | float):
         raise ToolError(f"widgets[{i}]: {key!r} must be a number, got {val!r}.")
     if not math.isfinite(val):
         raise ToolError(f"widgets[{i}]: {key!r} must be finite, got {val!r}.")
