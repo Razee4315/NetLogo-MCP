@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest a new tool, resource, or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the modeling/analysis task you want your AI assistant to handle.
+      placeholder: |
+        I want to ask Claude to "..." but there's no tool for...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What should the server do? A new tool, a new parameter, a new resource?
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Workarounds you've tried
+      description: e.g. raw `command`/`report` calls, manual NetLogo steps

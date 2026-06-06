@@ -5,8 +5,8 @@ Thanks for your interest in contributing! Here's how to get started.
 ## Development Setup
 
 ```bash
-git clone https://github.com/Razee4315/NetLogo_MCP.git
-cd NetLogo_MCP
+git clone https://github.com/Razee4315/NetLogo-MCP.git
+cd NetLogo-MCP
 pip install -e ".[dev]"
 pre-commit install
 ```

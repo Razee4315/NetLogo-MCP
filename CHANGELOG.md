@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-06-06
+
+First stable release. The server is feature-complete for conversational
+agent-based modeling: 25 tools covering model creation with declarative
+widgets, simulation and data collection, BehaviorSpace parameter sweeps,
+CoMSES Net library access, and view/world export — now published on PyPI
+as [`netlogo-mcp`](https://pypi.org/project/netlogo-mcp/).
+
+### Packaging
+
+- Published to PyPI: `pip install netlogo-mcp`.
+- Package renamed `NetLogo_MCP` → `netlogo-mcp` (PyPI-normalized name);
+  version is now single-sourced from `netlogo_mcp.__version__`.
+- Added release automation: pushing a `v*` tag builds, publishes to PyPI
+  via trusted publishing, and creates a GitHub Release with these notes.
+- Added `CITATION.cff`, issue/PR templates, and Dependabot config.
+
 ### Changed — lazy JVM startup
 
 - The JVM (and the NetLogo GUI window) now starts **lazily** on the first
