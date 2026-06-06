@@ -47,6 +47,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   procedure made the whole model fail to load.
 - `to setup-patches` no longer falsely counts as defining `setup`.
 
+### Added — plot widgets
+
+- The `widgets` schema now supports `{"type": "plot", "pens": [...]}` —
+  live population-dynamics plots in the NetLogo window, the main reason to
+  watch a GUI run. Pens take NetLogo plot code, palette color names (or raw
+  AWT ints), line/bar/point modes, and intervals; axes auto-scale.
+  Verified live: NetLogo 7.0.3 loads the generated XML and pens plot every
+  tick.
+
 ### Added — update_model
 
 - New `update_model(code, widgets?)` tool: rewrites the currently loaded

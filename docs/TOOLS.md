@@ -42,9 +42,20 @@ of just code:
   {"type": "switch",  "variable": "show-trails?", "default": false},
   {"type": "button",  "code": "setup", "label": "Setup"},
   {"type": "button",  "code": "go", "label": "Go", "forever": true},
-  {"type": "monitor", "code": "count sheep", "label": "Sheep", "precision": 0}
+  {"type": "monitor", "code": "count sheep", "label": "Sheep", "precision": 0},
+  {"type": "plot", "label": "Populations", "x_axis": "time", "y_axis": "count",
+   "pens": [
+     {"code": "plot count sheep",  "label": "sheep",  "color": "green"},
+     {"code": "plot count wolves", "label": "wolves", "color": "red"}
+   ]}
 ]
 ```
+
+Plot pens redraw every tick (and on `update-plots`). Pen `color` accepts a
+palette name (`black`, `gray`, `white`, `red`, `orange`, `brown`, `yellow`,
+`green`, `lime`, `turquoise`, `cyan`, `sky`, `blue`, `violet`, `magenta`,
+`pink`) or a raw AWT integer; unspecified pens cycle through distinct
+colors. Pen `mode`: 0 = line (default), 1 = bar, 2 = point.
 
 Rules:
 

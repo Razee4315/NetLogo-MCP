@@ -876,3 +876,64 @@ async def test_update_model_rejects_legacy_nlogo(mock_context, mock_nl, tmp_path
     await open_model(str(legacy), mock_context)
     with pytest.raises(ToolError, match="legacy .nlogo"):
         await update_model("to setup\nend", mock_context)
+
+
+# ── plot widgets ─────────────────────────────────────────────────────────────
+
+
+def test_wrap_nlogox_with_plot_widget():
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    xml = _wrap_nlogox(
+        "to setup\nend",
+        widgets=[
+            {
+                "type": "plot",
+                "label": "populations",
+                "x_axis": "time",
+                "y_axis": "count",
+                "pens": [
+                    {"code": "plot count sheep", "label": "sheep", "color": "green"},
+                    {"code": "plot count wolves"},  # default color from cycle
+                ],
+            }
+        ],
+    )
+    assert 'display="populations"' in xml
+    assert 'xAxis="time"' in xml and 'yAxis="count"' in xml
+    assert "<update>plot count sheep</update>" in xml
+    assert 'autoPlotX="true"' in xml and 'autoPlotY="true"' in xml
+    # green palette entry (88,176,49) -> AWT signed int
+    assert f'color="{((0xFF << 24) | (88 << 16) | (176 << 8) | 49) - (1 << 32)}"' in xml
+    assert xml.count("<pen ") == 2
+
+
+def test_plot_pen_color_accepts_raw_int():
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    xml = _wrap_nlogox(
+        "to setup\nend",
+        widgets=[{"type": "plot", "pens": [{"code": "plot ticks", "color": -612749}]}],
+    )
+    assert 'color="-612749"' in xml
+
+
+@pytest.mark.parametrize(
+    "bad_plot,err_match",
+    [
+        ({"type": "plot", "pens": []}, "non-empty 'pens'"),
+        ({"type": "plot", "pens": [{"label": "x"}]}, "needs NetLogo 'code'"),
+        (
+            {"type": "plot", "pens": [{"code": "plot 1", "color": "chartreuse"}]},
+            "unknown color",
+        ),
+        ({"type": "plot", "pens": [{"code": "plot 1", "mode": 7}]}, "mode must be"),
+    ],
+)
+def test_plot_widget_validation(bad_plot, err_match):
+    from fastmcp.exceptions import ToolError
+
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    with pytest.raises(ToolError, match=err_match):
+        _wrap_nlogox("to setup\nend", widgets=[bad_plot])

@@ -840,6 +840,12 @@ async def create_model(
             {"type": "switch", "variable": "show-trails?", "default": false}
             {"type": "button", "code": "setup", "label"?, "forever"?: false}
             {"type": "monitor", "code": "count sheep", "label"?, "precision"?: 0}
+            {"type": "plot", "label"?: "populations", "x_axis"?, "y_axis"?,
+             "pens": [{"code": "plot count sheep", "label"?,
+                       "color"?: "green", "mode"?: 0, "interval"?: 1}]}
+            Plot pens redraw on every tick (and on update-plots). Pen colors:
+            palette names (black/gray/white/red/orange/brown/yellow/green/
+            lime/turquoise/cyan/sky/blue/violet/magenta/pink) or AWT ints.
             IMPORTANT: slider/switch widgets DEFINE their variable — do NOT
             also declare it in `globals [...]` or the model won't compile.
             Include setup/go buttons yourself when passing widgets. When
@@ -959,7 +965,59 @@ async def update_model(
 _WIDGET_X = 10
 _WIDGET_WIDTH = 190
 _WIDGET_GAP = 10
-_WIDGET_HEIGHTS = {"button": 45, "slider": 50, "switch": 40, "monitor": 60}
+_WIDGET_HEIGHTS = {"button": 45, "slider": 50, "switch": 40, "monitor": 60, "plot": 160}
+
+# AWT signed-int pen colors, mirroring NetLogo's swatch palette.
+_PEN_COLORS = {
+    "black": (0, 0, 0),
+    "gray": (140, 140, 140),
+    "white": (255, 255, 255),
+    "red": (215, 50, 41),
+    "orange": (241, 106, 14),
+    "brown": (156, 109, 70),
+    "yellow": (237, 237, 49),
+    "green": (88, 176, 49),
+    "lime": (0, 205, 101),
+    "turquoise": (64, 224, 208),
+    "cyan": (84, 196, 196),
+    "sky": (47, 132, 220),
+    "blue": (52, 93, 169),
+    "violet": (143, 107, 177),
+    "magenta": (217, 80, 152),
+    "pink": (255, 167, 179),
+}
+
+# When pens don't specify a color, cycle through visually-distinct ones.
+_DEFAULT_PEN_CYCLE = [
+    "blue",
+    "red",
+    "green",
+    "orange",
+    "violet",
+    "brown",
+    "cyan",
+    "magenta",
+]
+
+
+def _pen_color(value: Any, i: int, j: int) -> int:
+    """Resolve a pen color (palette name or raw AWT int) to a signed int32."""
+    if isinstance(value, bool):
+        raise ToolError(f"widgets[{i}].pens[{j}]: 'color' must be a name or int.")
+    if isinstance(value, int):
+        if not -(1 << 31) <= value < (1 << 31):
+            raise ToolError(
+                f"widgets[{i}].pens[{j}]: color int {value} out of int32 range."
+            )
+        return value
+    if isinstance(value, str) and value.lower() in _PEN_COLORS:
+        r, g, b = _PEN_COLORS[value.lower()]
+        return ((0xFF << 24) | (r << 16) | (g << 8) | b) - (1 << 32)
+    raise ToolError(
+        f"widgets[{i}].pens[{j}]: unknown color {value!r}. Use one of "
+        f"{sorted(_PEN_COLORS)} or a raw AWT integer."
+    )
+
 
 _VIEW_XML = (
     '<view x="210" wrappingAllowedX="true" y="10" frameRate="30.0"'
@@ -1034,6 +1092,54 @@ def _widget_spec_to_xml(spec: dict[str, Any], i: int, y: int) -> str:
         return (
             f'<switch x="{x}" y="{y}" width="{w}" height="{h}"'
             f' on="{on}" variable={var_attr} display={display_attr}></switch>'
+        )
+
+    if wtype == "plot":
+        pens = spec.get("pens")
+        if not isinstance(pens, list) or not pens:
+            raise ToolError(
+                f"widgets[{i}]: plot needs a non-empty 'pens' list, e.g. "
+                '[{"code": "plot count sheep", "color": "green"}].'
+            )
+        display_attr = saxutils.quoteattr(spec.get("label", "plot"))
+        x_axis = saxutils.quoteattr(spec.get("x_axis", "time"))
+        y_axis = saxutils.quoteattr(spec.get("y_axis", ""))
+        pen_parts = []
+        for j, pen in enumerate(pens):
+            if not isinstance(pen, dict):
+                raise ToolError(f"widgets[{i}].pens[{j}] must be an object.")
+            pen_code = pen.get("code")
+            if not isinstance(pen_code, str) or not pen_code.strip():
+                raise ToolError(
+                    f"widgets[{i}].pens[{j}]: each pen needs NetLogo 'code' "
+                    '(e.g. "plot count sheep").'
+                )
+            mode = pen.get("mode", 0)
+            if mode not in (0, 1, 2):
+                raise ToolError(
+                    f"widgets[{i}].pens[{j}]: mode must be 0 (line), 1 (bar), "
+                    f"or 2 (point), got {mode!r}."
+                )
+            interval = (
+                _require_finite_number(pen, "interval", i) if "interval" in pen else 1.0
+            )
+            color = _pen_color(
+                pen.get("color", _DEFAULT_PEN_CYCLE[j % len(_DEFAULT_PEN_CYCLE)]),
+                i,
+                j,
+            )
+            pen_label = saxutils.quoteattr(pen.get("label", pen_code.strip()))
+            pen_parts.append(
+                f'<pen interval="{interval}" mode="{mode}" display={pen_label}'
+                f' color="{color}" legend="true"><setup></setup>'
+                f"<update>{saxutils.escape(pen_code.strip())}</update></pen>"
+            )
+        return (
+            f'<plot x="{x}" y="{y}" width="{w}" height="{h}"'
+            f" display={display_attr} xAxis={x_axis} yAxis={y_axis}"
+            f' xMin="0.0" xMax="10.0" yMin="0.0" yMax="10.0"'
+            f' autoPlotX="true" autoPlotY="true" legend="true">'
+            f"<setup></setup><update></update>{''.join(pen_parts)}</plot>"
         )
 
     code = spec.get("code")
