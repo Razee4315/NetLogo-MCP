@@ -208,8 +208,4 @@ LinkedIn: [@saqlainrazee](https://www.linkedin.com/in/saqlainrazee/)
 
 This project is licensed under the [MIT License](LICENSE) — free to use, modify, and distribute for any purpose.
 
-<p align="center">
-  <img src="assets/mascot.png" width="160" alt="Turt, the NetLogo MCP mascot">
-  <br>
-  <em>Happy modeling! 🐢</em>
-</p>
+<!-- mcp-name: io.github.Razee4315/netlogo-mcp -->

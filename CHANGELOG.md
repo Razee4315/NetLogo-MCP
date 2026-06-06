@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-06-06
+
+### Fixed
+
+- MCP Registry namespace casing: the registry's GitHub OIDC grant is
+  case-sensitive (`io.github.Razee4315/*`), so the server name and the
+  README ownership marker now use the exact GitHub username casing.
+  v1.0.1's registry publish failed on this; PyPI and the GitHub Release
+  were unaffected.
+
+## [1.0.1] - 2026-06-06
+
+### Added — official MCP Registry listing
+
+- Published to the [official MCP Registry](https://registry.modelcontextprotocol.io)
+  as `io.github.razee4315/netlogo-mcp` — MCP clients that browse the registry
+  can now discover and install the server directly.
+- `server.json` registry manifest with PyPI package reference and
+  documented `NETLOGO_HOME` / `JAVA_HOME` / `NETLOGO_GUI` environment
+  variables.
+- Release workflow now publishes to the MCP Registry (GitHub OIDC, no
+  tokens) after the PyPI publish succeeds.
+- README carries the registry ownership marker (`mcp-name`, hidden
+  comment) required for PyPI package validation.
+
 ## [1.0.0] - 2026-06-06
 
 First stable release. The server is feature-complete for conversational
