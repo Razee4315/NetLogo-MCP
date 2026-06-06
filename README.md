@@ -26,10 +26,6 @@ Instead of manually writing NetLogo code, clicking buttons, and tweaking sliders
 The AI writes the code, runs the simulation, and shows you the results — all through conversation.
 
 <p align="center">
-  <img src="assets/how-it-works.png" alt="1. You describe the model — 2. AI writes the NetLogo code — 3. The simulation comes alive" width="800">
-</p>
-
-<p align="center">
   <img src="assets/architecture.png" alt="You → AI Assistant → NetLogo MCP Server → NetLogo (GUI or headless JVM)" width="800">
 </p>
 
