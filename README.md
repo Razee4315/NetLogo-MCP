@@ -24,93 +24,24 @@ Instead of manually writing NetLogo code, clicking buttons, and tweaking sliders
 
 The AI writes the code, runs the simulation, and shows you the results — all through conversation.
 
-## How It Works
-
 ```
 You (in any MCP client) → AI Assistant → MCP Protocol → NetLogo MCP Server → NetLogo (GUI or headless JVM)
 ```
 
-By default, a real NetLogo window opens so you can watch your simulations run live. Headless mode is available for CI or servers.
+By default a real NetLogo window opens (on first use) so you can watch your simulations run live. Headless mode is available for CI or servers.
 
 ## Features
 
-- Create models from code (AI wraps them in `.nlogox` format)
-- Run simulations, collect tick-by-tick data as markdown tables
-- **Run BehaviorSpace experiments** — list saved experiments, preview the run plan, drive parallel parameter sweeps via the headless launcher
-- Export view as PNG — visible inline in chat
-- Set global variables, sliders, switches
-- Get world state, agent counts, world dimensions, patch grids
-- Built-in NetLogo primitives, programming guide, and **NetLogo 6→7 transition guide** as MCP resources
-- Prompt templates for model analysis, ABM creation, parameter sweeps, BehaviorSpace experiments, and CoMSES exploration
-- Live GUI mode for teaching and real-time exploration
-- Token-efficient output modes (`summary_only`, `max_rows` decimation) for long runs
+- **Create models from code** — with real interface widgets: sliders, switches, buttons, monitors
+- **Run simulations** and collect tick-by-tick data as markdown tables
+- **Run BehaviorSpace experiments** — parallel parameter sweeps via the headless launcher
+- **Export the view as PNG** — visible inline in chat
+- **Inspect everything** — world state, agent samples, patch grids for heatmaps
+- **CoMSES Net integration** — search and safely run models from the largest peer-reviewed ABM library
+- **Built-in references** — NetLogo primitives, programming guide, and 6→7 transition guide as MCP resources
+- **Lazy startup** — the NetLogo window only opens when you actually use a tool, not when your AI client connects
 
-## Tools
-
-| Tool | Description |
-|------|-------------|
-| `create_model(code)` | Create a new model from NetLogo code |
-| `open_model(path)` | Load an existing .nlogo/.nlogox model |
-| `command(netlogo_command)` | Execute a NetLogo command (setup, go, etc.) |
-| `report(reporter)` | Evaluate a reporter expression |
-| `run_simulation(ticks, reporters)` | Run N ticks, collect data as a table |
-| `set_parameter(name, value)` | Set a global variable / slider / switch |
-| `get_world_state()` | Get tick count, agent counts, world dimensions |
-| `get_agent_sample(breed, n, attributes)` | Sample N agents as a markdown table — fills the gap between counts and hand-crafted reporters |
-| `get_patch_data(attribute, max_cells)` | Get patch data as a 2D grid (for heatmaps); auto-downsamples above `max_cells` (default 10000) |
-| `export_view()` | Export current view as PNG image |
-| `save_model(name, code)` | Save model to file |
-| `export_world()` | Export full world state to CSV |
-| `close_model()` | Unload the current model and `clear-all` the workspace |
-| `server_info()` | Inspect server config (paths, GUI mode, headless launcher) |
-| `list_models()` | List model files in models directory |
-| `search_comses(query)` | Search the CoMSES Net model library |
-| `get_comses_model(uuid)` | Fetch metadata + citation text for one COMSES model |
-| `download_comses_model(uuid)` | Safely download + extract a COMSES archive |
-| `open_comses_model(uuid)` | Download (or reuse cache) and load NetLogo models |
-| `read_comses_files(uuid)` | Read ODD / source contents from a downloaded model |
-| `list_experiments()` | List BehaviorSpace experiments saved in the loaded model |
-| `preview_experiment(...)` | Preview a BehaviorSpace run plan (total runs, time estimate) without executing |
-| `run_experiment(...)` | Run a BehaviorSpace experiment headlessly (named or inline spec) |
-
-Plus 4 resources (primitives reference, programming guide, model source, **NetLogo 6→7 transition guide**) and 5 prompts (`analyze_model`, `create_abm`, `parameter_sweep`, `explore_comses`, **`behaviorspace_experiment`**).
-
-### BehaviorSpace integration
-
-Run NetLogo's BehaviorSpace experiments from any MCP client. Three tools cover the workflow:
-
-1. **`list_experiments()`** — read the `<experiments>` section of the loaded `.nlogox` to inventory saved experiments. No JVM round-trip; instant.
-2. **`preview_experiment(...)`** — show the run plan (total runs, parameter combos, time estimate) without executing. Always run this before a long sweep.
-3. **`run_experiment(...)`** — drive `NetLogo_Console --headless` (or `netlogo-headless.bat`) in a separate JVM. Returns parsed results plus the path to the full table CSV.
-
-Long runs are bounded by `max_total_runs` (default 200) and `timeout_seconds` (default 600); partial table CSV is preserved on timeout.
-
-Try it with the `behaviorspace_experiment` prompt or just ask: *"Run a BehaviorSpace experiment varying initial-density from 50 to 90 in steps of 10, three reps each, measuring count turtles."*
-
-### CoMSES Net integration
-
-NetLogo MCP can search and safely fetch any model from the [CoMSES Net computational model library](https://www.comses.net/) — the largest peer-reviewed ABM repository. NetLogo models load automatically; Python / R / Julia models are identified and cached locally so you can inspect their source and ODD documentation from any MCP client, including clients with no filesystem tools.
-
-Try it with the `explore_comses` prompt or just ask: *"Find me a predator-prey ABM on COMSES and run a short baseline."*
-
-Safety properties (applied to every download):
-- Archives streamed with a hard byte cap (`COMSES_MAX_DOWNLOAD_MB`, default 50 MB) enforced mid-stream, not just via HEAD.
-- Every zip member is path-traversal-validated before extraction.
-- Zip-bomb refusal on uncompressed-size overflow.
-- Extraction is atomic: downloads land in a temp dir first, then move to the cache only on success.
-- Cache directories are trusted only when they carry the `.comses_complete` marker.
-- `"latest"` is resolved to a concrete version before any cache path is computed; the resolved version is returned to the AI so follow-up reads stay pinned to the same slot.
-
-## Security Model
-
-NetLogo MCP gives the connecting AI client **arbitrary file and process I/O on the host machine**, scoped to the user the server runs as. The `command` and `create_model` tools accept any NetLogo statement; NetLogo's standard primitives include `file-open` / `file-write-line` / `file-delete`, `export-world` / `import-world`, `set-current-directory`, and — via extensions — shell calls (`sh`), Python execution (`py`), and network I/O (`web`). Treat the trust boundary the same way you treat a local terminal: **only connect this server to AI clients you trust as much as a shell.**
-
-Concretely:
-
-- The stdio transport assumes the parent client is trusted. There is no auth, and adding it wouldn't help — the parent process owns the file descriptors.
-- The `models/` and `exports/` directories are writable by any tool call. Don't point `NETLOGO_MODELS_DIR` at a location you wouldn't `chmod o+w`.
-- Models downloaded via `open_comses_model` are extracted with path-traversal and zip-bomb guards (see CoMSES Net integration above), but **once loaded, any `command` call against them runs untrusted NetLogo code**. Read the ODD doc and skim the source before running setups on third-party models.
-- Future versions may ship an opt-in `NETLOGO_MCP_RESTRICTED=true` mode that blocks dangerous primitives. The default will remain unrestricted — the product is "let the AI drive NetLogo," and a restricted default would break the core flow.
+See [docs/TOOLS.md](docs/TOOLS.md) for the full reference of all 23 tools, widget schema, and prompts.
 
 ## Prerequisites
 
@@ -127,7 +58,7 @@ Concretely:
 
 If you're using an AI coding tool, copy the prompt below into your chat. The AI will detect your OS, find your NetLogo and Java installations, clone the repo, install dependencies, configure your MCP client, and tell you how to use it.
 
-<details open>
+<details>
 <summary><strong>Click to copy the setup prompt</strong></summary>
 
 ```
@@ -160,13 +91,13 @@ Please set up the NetLogo MCP server for me end-to-end. Follow these steps caref
      - `command`: `netlogo-mcp`
      - `env.NETLOGO_HOME`: the NetLogo path you detected
      - `env.JAVA_HOME`: the JDK path you detected
-     - `env.NETLOGO_GUI`: `"true"` (default — opens a live NetLogo window)
    - Use the exact JSON schema for my specific client (e.g. `"type": "stdio"` for Cursor, `"servers"` key for VS Code).
    - Preserve any existing config entries — merge, don't overwrite.
+   - IMPORTANT: configure it for THIS project only (project-scope config file), not globally, unless I say otherwise — a global entry loads the server in every session.
 
 5. **Tell me what to do next**
    - Tell me to fully restart my AI tool for the new MCP server to load.
-   - Warn me that the FIRST tool call takes 30–60 seconds while the Java Virtual Machine starts (the NetLogo GUI window will appear when it's ready). Tell me NOT to click stop during this wait.
+   - Tell me the NetLogo window opens on the FIRST model tool call, and that call takes 30–60 seconds while the Java Virtual Machine starts. Tell me NOT to click stop during this wait.
    - Give me this exact test prompt to try after restart:
 
      > "Create a simple predator-prey model with wolves and sheep on a green landscape. Run setup, then run 100 ticks while tracking wolf and sheep counts. Export the view before and after so I can see how the world evolved."
@@ -186,45 +117,7 @@ cd NetLogo-MCP
 pip install -e .
 ```
 
-## Configuration
-
-Create a `.env` file in the project root (or set env vars in your MCP client config):
-
-```env
-# Windows
-NETLOGO_HOME=C:/Program Files/NetLogo 7.0.3
-JAVA_HOME=C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot
-
-# macOS
-# NETLOGO_HOME=/Applications/NetLogo 7.0.3
-# JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home
-
-# Linux
-# NETLOGO_HOME=/opt/netlogo-7.0.3
-# JAVA_HOME=/usr/lib/jvm/java-21-openjdk
-```
-
-### Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `NETLOGO_HOME` | Yes | Path to your NetLogo installation directory |
-| `JAVA_HOME` | No | Path to your JDK directory (auto-detected if not set) |
-| `NETLOGO_MODELS_DIR` | No | Directory for model files (defaults to the current working directory's `./models`) |
-| `NETLOGO_GUI` | No | `"true"` (default) for live GUI window, `"false"` for headless |
-| `NETLOGO_EXPORTS_DIR` | No | Directory for exported views/worlds (defaults to the current working directory's `./exports`) |
-| `COMSES_MAX_DOWNLOAD_MB` | No | Max CoMSES archive size in MB (default 50). Enforced mid-stream. |
-| `NETLOGO_EXPORTS_MAX_FILES` | No | Max files retained in each `exports/` subdirectory (default 200). Oldest are pruned after each `export_view` / `export_world`. Set to `0` to disable. |
-| `NETLOGO_MCP_RESTRICTED` | No | Set to `"true"` to block dangerous NetLogo primitives (`file-*`, `import-world`, `set-current-directory`, extension shell escapes). Off by default — see Security Model. |
-
-## Client Setup
-
-The 3 most common clients are below. **For Windsurf, Cline, Continue, Roo Code, Zed, OpenCode, Codex, and Claude Desktop — see [docs/CLIENTS.md](docs/CLIENTS.md).**
-
-<details>
-<summary><strong>Claude Code</strong></summary>
-
-Add to your project's `.mcp.json`:
+Then add the server to your MCP client. For Claude Code, add to your **project's** `.mcp.json`:
 
 ```json
 {
@@ -243,64 +136,9 @@ Add to your project's `.mcp.json`:
 
 Restart Claude Code and verify with `/mcp`.
 
-</details>
+> **Tip:** prefer project-scope config (`.mcp.json` in one project) over global config — a global entry loads the server in every session of every project.
 
-<details>
-<summary><strong>Cursor</strong></summary>
-
-Add to `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
-
-```json
-{
-  "mcpServers": {
-    "netlogo": {
-      "type": "stdio",
-      "command": "netlogo-mcp",
-      "args": [],
-      "env": {
-        "NETLOGO_HOME": "C:/Program Files/NetLogo 7.0.3",
-        "JAVA_HOME": "C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot"
-      }
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><strong>VS Code (Copilot)</strong></summary>
-
-Add to `.vscode/mcp.json`:
-
-```json
-{
-  "servers": {
-    "netlogo": {
-      "type": "stdio",
-      "command": "netlogo-mcp",
-      "args": [],
-      "env": {
-        "NETLOGO_HOME": "C:/Program Files/NetLogo 7.0.3",
-        "JAVA_HOME": "C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot"
-      }
-    }
-  }
-}
-```
-
-> VS Code uses `"servers"` instead of `"mcpServers"`.
-
-</details>
-
-### GUI vs Headless Mode
-
-| Mode | `NETLOGO_GUI` | What Happens |
-|------|---------------|-------------|
-| **Live GUI** (default) | `"true"` or omitted | Opens a NetLogo window. Watch simulations run in real-time. |
-| **Headless** | `"false"` | No window. Faster startup. See snapshots via `export_view` in chat. |
-
-The mode is set at startup — to switch, change the env var and restart your client.
+**Using Cursor, Windsurf, VS Code, Cline, Continue, Roo Code, Zed, OpenCode, Codex, or Claude Desktop?** See [docs/CLIENTS.md](docs/CLIENTS.md) for exact config for all 11 clients. All configuration options (GUI/headless mode, directories, limits) are in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ## Quick Start
 
@@ -313,11 +151,11 @@ Once connected, try these prompts in any MCP client:
 > Open the Wolf Sheep Predation model and run a parameter sweep
   on initial-number-wolves from 10 to 100.
 
-> Build a disease spread model with susceptible, infected, and
-  recovered agents on a grid.
+> Build a disease spread model with sliders for population size and
+  infection chance.
 ```
 
-> **First tool call takes 30-60 seconds** while the JVM starts. Don't click stop — the NetLogo window will appear when it's ready. After that, every call is instant.
+> **The first model tool call takes 30-60 seconds** while the JVM starts — the NetLogo window appears when it's ready. Don't click stop. Every call after that is instant.
 
 ## Troubleshooting
 
@@ -327,11 +165,15 @@ Once connected, try these prompts in any MCP client:
 | `JAVA_HOME is not set` | Set it to your JDK directory (not JRE) |
 | JVM crashes on startup | Make sure JAVA_HOME points to JDK 11+, not an older version |
 | `No model is loaded` | Call `open_model` or `create_model` before using other tools |
-| First call hangs for 30-60s | Normal — JVM is warming up. Don't click stop. |
+| First model call hangs for 30-60s | Normal — JVM is warming up. Don't click stop. |
+| NetLogo window opens when my AI client starts | You have `NETLOGO_EAGER_START=true` set, or an old version — by default the window only opens on first tool use |
 | Server won't connect | Run `netlogo-mcp` manually in terminal to see error output |
 
 ## Documentation
 
+- [docs/TOOLS.md](docs/TOOLS.md) — Full tool reference, widget schema, BehaviorSpace & CoMSES guides
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — All environment variables, GUI vs headless, startup timing
+- [docs/SECURITY.md](docs/SECURITY.md) — Security model and trust boundary
 - [docs/CLIENTS.md](docs/CLIENTS.md) — Setup for all 11 MCP clients
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — Project structure, running tests, architecture notes
 - [CONTRIBUTING.md](CONTRIBUTING.md) — How to contribute
