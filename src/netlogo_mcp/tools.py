@@ -1092,13 +1092,22 @@ def _pen_color(value: Any, i: int, j: int) -> int:
     )
 
 
-_VIEW_XML = (
-    '<view x="210" wrappingAllowedX="true" y="10" frameRate="30.0"'
-    ' minPycor="-16" height="430" showTickCounter="true" patchSize="13.0"'
-    ' fontSize="10" wrappingAllowedY="true" width="430"'
-    ' tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16"'
-    ' minPxcor="-16"></view>'
-)
+# Widgets that would overflow this column height wrap to a new column.
+_COLUMN_BUDGET = 450
+
+
+def _view_xml(x: int) -> str:
+    """The world view, placed to the right of the widget column(s)."""
+    return (
+        f'<view x="{x}" wrappingAllowedX="true" y="10" frameRate="30.0"'
+        ' minPycor="-16" height="430" showTickCounter="true" patchSize="13.0"'
+        ' fontSize="10" wrappingAllowedY="true" width="430"'
+        ' tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16"'
+        ' minPxcor="-16"></view>'
+    )
+
+
+_VIEW_XML = _view_xml(210)
 
 
 def _has_procedure(code: str, name: str) -> bool:
@@ -1115,7 +1124,9 @@ def _require_finite_number(spec: dict[str, Any], key: str, i: int) -> float:
     return float(val)
 
 
-def _widget_spec_to_xml(spec: dict[str, Any], i: int, y: int) -> str:
+def _widget_spec_to_xml(
+    spec: dict[str, Any], i: int, y: int, x: int = _WIDGET_X
+) -> str:
     """Render one declarative widget spec to .nlogox XML (NetLogo 7 schema)."""
     import xml.sax.saxutils as saxutils
 
@@ -1127,7 +1138,7 @@ def _widget_spec_to_xml(spec: dict[str, Any], i: int, y: int) -> str:
             f"widgets[{i}]: type must be one of "
             f"{sorted(_WIDGET_HEIGHTS)}, got {wtype!r}."
         )
-    x, w, h = _WIDGET_X, _WIDGET_WIDTH, _WIDGET_HEIGHTS[wtype]
+    w, h = _WIDGET_WIDTH, _WIDGET_HEIGHTS[wtype]
 
     if wtype in ("slider", "switch"):
         variable = spec.get("variable")
@@ -1243,16 +1254,20 @@ def _widget_spec_to_xml(spec: dict[str, Any], i: int, y: int) -> str:
 
 
 def _render_widgets(procedures: str, widgets: list[dict[str, Any]] | None) -> str:
-    """Render the <widgets> children: the view plus a stacked left column.
+    """Render the <widgets> children: the view plus stacked widget columns.
 
-    With no explicit widget specs, Setup/Go buttons are emitted only when the
-    code actually defines those procedures — a button pointing at a missing
-    procedure makes the whole model fail to load.
+    Widgets fill a column top-to-bottom; when one would overflow the column
+    height budget it wraps to a new column, and the world view shifts right
+    to sit beside the last column. With no explicit widget specs, Setup/Go
+    buttons are emitted only when the code actually defines those
+    procedures — a button pointing at a missing procedure makes the whole
+    model fail to load.
     """
-    lines = [_VIEW_XML]
+    column_pitch = _WIDGET_WIDTH + _WIDGET_GAP
     y = _WIDGET_X  # top margin matches the left margin
 
     if widgets is None:
+        lines = []
         if _has_procedure(procedures, "setup"):
             lines.append(
                 f'<button x="{_WIDGET_X}" y="{y}" width="{_WIDGET_WIDTH}"'
@@ -1272,13 +1287,22 @@ def _render_widgets(procedures: str, widgets: list[dict[str, Any]] | None) -> st
             ' height="45" fontSize="11" precision="0"'
             ' display="Time Steps">ticks</monitor>'
         )
-    else:
-        for i, spec in enumerate(widgets):
-            lines.append(_widget_spec_to_xml(spec, i, y))
-            wtype = spec.get("type") if isinstance(spec, dict) else None
-            y += _WIDGET_HEIGHTS.get(wtype, 45) + _WIDGET_GAP  # type: ignore[arg-type]
+        return "\n    ".join([_VIEW_XML, *lines])
 
-    return "\n    ".join(lines)
+    lines = []
+    column = 0
+    for i, spec in enumerate(widgets):
+        wtype = spec.get("type") if isinstance(spec, dict) else None
+        h = _WIDGET_HEIGHTS.get(wtype, 45)  # type: ignore[arg-type]
+        if y > _WIDGET_X and y + h > _COLUMN_BUDGET:
+            column += 1
+            y = _WIDGET_X
+        x = _WIDGET_X + column * column_pitch
+        lines.append(_widget_spec_to_xml(spec, i, y, x=x))
+        y += h + _WIDGET_GAP
+
+    view_x = _WIDGET_X + (column + 1) * column_pitch
+    return "\n    ".join([_view_xml(view_x), *lines])
 
 
 def _wrap_nlogox(

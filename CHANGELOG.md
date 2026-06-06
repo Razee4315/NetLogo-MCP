@@ -47,6 +47,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   procedure made the whole model fail to load.
 - `to setup-patches` no longer falsely counts as defining `setup`.
 
+### Changed — multi-column widget layout
+
+- Declarative widgets now wrap into additional columns when they'd
+  overflow the column height, and the world view shifts right to sit
+  beside the last column — widget-heavy models no longer pile into one
+  endless strip that runs off the bottom of the window.
+
 ### Added — GUI polish
 
 - The NetLogo window is retitled to the model name and brought to the

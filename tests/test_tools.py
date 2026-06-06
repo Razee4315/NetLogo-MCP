@@ -982,3 +982,63 @@ def test_polish_gui_window_noop_without_jvm():
     from netlogo_mcp.tools import _polish_gui_window
 
     _polish_gui_window("NetLogo — anything")  # no JVM in unit tests: silent no-op
+
+
+# ── multi-column widget layout ───────────────────────────────────────────────
+
+
+def test_widgets_overflow_into_second_column():
+    """Widgets past the column height budget wrap right; view shifts over."""
+    import re as _re
+
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    sliders = [
+        {"type": "slider", "variable": f"var-{k}", "min": 0, "max": 10}
+        for k in range(9)  # 9 x (50+10) = 540 > 450 budget -> wraps
+    ]
+    xml = _wrap_nlogox("to setup\nend", widgets=sliders)
+    xs = [int(m) for m in _re.findall(r'<slider x="(\d+)"', xml)]
+    assert set(xs) == {10, 210}  # two columns
+    assert xs.count(10) == 7  # y: 10..370 fit; 430+50 > 450 wraps
+    assert xs.count(210) == 2
+    view_x = int(_re.search(r'<view x="(\d+)"', xml).group(1))
+    assert view_x == 410  # view sits right of the second column
+
+
+def test_few_widgets_stay_single_column():
+    import re as _re
+
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    xml = _wrap_nlogox(
+        "to setup\nend",
+        widgets=[
+            {"type": "button", "code": "setup"},
+            {"type": "switch", "variable": "on?", "default": True},
+        ],
+    )
+    view_x = int(_re.search(r'<view x="(\d+)"', xml).group(1))
+    assert view_x == 210  # unchanged back-compat layout
+    assert '<button x="10"' in xml and '<switch x="10"' in xml
+
+
+def test_tall_plot_wraps_cleanly():
+    import re as _re
+
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    xml = _wrap_nlogox(
+        "to setup\nend",
+        widgets=[
+            {"type": "slider", "variable": "a", "min": 0, "max": 1},  # y=10
+            {"type": "slider", "variable": "b", "min": 0, "max": 1},  # y=70
+            {"type": "slider", "variable": "c", "min": 0, "max": 1},  # y=130
+            {"type": "slider", "variable": "d", "min": 0, "max": 1},  # y=190
+            {"type": "slider", "variable": "e", "min": 0, "max": 1},  # y=250
+            # 310 + 160 = 470 > 450 -> plot starts a new column at y=10
+            {"type": "plot", "pens": [{"code": "plot ticks"}]},
+        ],
+    )
+    m = _re.search(r'<plot x="(\d+)" y="(\d+)"', xml)
+    assert (int(m.group(1)), int(m.group(2))) == (210, 10)

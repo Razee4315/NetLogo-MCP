@@ -69,7 +69,9 @@ Rules:
   included.
 - When `widgets` is provided, it fully replaces the default button column —
   include your own setup/go buttons.
-- Widgets stack in a left-hand column; the world view sits to their right.
+- Widgets stack top-to-bottom in columns; when a column fills up, the next
+  widget wraps into a new column and the world view shifts right to sit
+  beside the last column.
 
 ## Resources & prompts
 
