@@ -203,3 +203,5 @@ LinkedIn: [@saqlainrazee](https://www.linkedin.com/in/saqlainrazee/)
 ## License
 
 This project is licensed under the [MIT License](LICENSE) — free to use, modify, and distribute for any purpose.
+
+<!-- mcp-name: io.github.razee4315/netlogo-mcp -->
