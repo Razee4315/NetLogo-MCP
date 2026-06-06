@@ -3,12 +3,44 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "NetLogo_MCP"
-version = "0.1.0"
-description = "MCP server for NetLogo agent-based modeling"
+name = "netlogo-mcp"
+dynamic = ["version"]
+description = "The first MCP server for NetLogo — let AI assistants create, run, and analyze agent-based models through natural conversation"
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [
+    { name = "Saqlain Abbas", email = "saqlainrazee@gmail.com" },
+]
+keywords = [
+    "netlogo",
+    "mcp",
+    "model-context-protocol",
+    "agent-based-modeling",
+    "abm",
+    "simulation",
+    "claude",
+    "ai",
+    "complexity-science",
+    "behaviorspace",
+    "comses",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Education",
+    "Typing :: Typed",
+]
+
 dependencies = [
     "fastmcp>=2.0.0",
     "pynetlogo>=0.5.2",
@@ -30,8 +62,18 @@ dev = [
     "pre-commit>=3.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Razee4315/NetLogo-MCP"
+Repository = "https://github.com/Razee4315/NetLogo-MCP"
+Documentation = "https://github.com/Razee4315/NetLogo-MCP/tree/main/docs"
+Changelog = "https://github.com/Razee4315/NetLogo-MCP/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Razee4315/NetLogo-MCP/issues"
+
 [project.scripts]
 netlogo-mcp = "netlogo_mcp.server:main"
+
+[tool.hatch.version]
+path = "src/netlogo_mcp/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/netlogo_mcp"]

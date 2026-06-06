@@ -3,6 +3,7 @@
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/netlogo-mcp/"><img src="https://img.shields.io/pypi/v/netlogo-mcp.svg" alt="PyPI"></a>
   <a href="https://github.com/Razee4315/NetLogo-MCP/actions/workflows/ci.yml"><img src="https://github.com/Razee4315/NetLogo-MCP/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
   <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
@@ -41,7 +42,7 @@ By default a real NetLogo window opens (on first use) so you can watch your simu
 - **Built-in references** — NetLogo primitives, programming guide, and 6→7 transition guide as MCP resources
 - **Lazy startup** — the NetLogo window only opens when you actually use a tool, not when your AI client connects
 
-See [docs/TOOLS.md](docs/TOOLS.md) for the full reference of all 23 tools, widget schema, and prompts.
+See [docs/TOOLS.md](docs/TOOLS.md) for the full reference of all 25 tools, widget schema, and prompts.
 
 ## Prerequisites
 
@@ -49,7 +50,6 @@ See [docs/TOOLS.md](docs/TOOLS.md) for the full reference of all 23 tools, widge
 |-------------|----------------------|-----|
 | **Python 3.10+** | Yes | Windows: `winget install Python.Python.3.12` · macOS: `brew install python@3.12` · Linux: `sudo apt install python3.12` |
 | **Java JDK 11+** | Yes | Windows: `winget install EclipseAdoptium.Temurin.21.JDK` · macOS: `brew install --cask temurin` · Linux: `sudo apt install openjdk-21-jdk` |
-| **Git** | Yes | Windows: `winget install Git.Git` · macOS/Linux: usually pre-installed |
 | **NetLogo 7.0+** | **No — manual** | Download from [ccl.northwestern.edu/netlogo](https://ccl.northwestern.edu/netlogo/download.shtml) |
 
 > **Only NetLogo requires manual download.** Everything else can be installed via terminal, and the Zero-Config Setup prompt below handles those automatically.
@@ -74,11 +74,8 @@ Please set up the NetLogo MCP server for me end-to-end. Follow these steps caref
      - Linux: `/opt/netlogo*`, `~/netlogo*`
      If NetLogo isn't installed, tell me to download it from https://ccl.northwestern.edu/netlogo/download.shtml and stop.
 
-2. **Clone and install**
-   - Pick a sensible parent directory (e.g. my home folder or `~/projects`).
-   - Run: `git clone https://github.com/Razee4315/NetLogo-MCP.git`
-   - `cd` into the cloned directory.
-   - Run: `pip install -e .`
+2. **Install**
+   - Run: `pip install netlogo-mcp`
    - Verify the `netlogo-mcp` command is now available on my PATH.
 
 3. **Identify my MCP client**
@@ -86,7 +83,9 @@ Please set up the NetLogo MCP server for me end-to-end. Follow these steps caref
    - If you're not sure, ask me.
 
 4. **Configure the MCP client**
-   - Locate (or create) the correct config file for my client (see docs/CLIENTS.md for exact paths and schemas).
+   - Locate (or create) the correct config file for my client (see
+     https://github.com/Razee4315/NetLogo-MCP/blob/main/docs/CLIENTS.md
+     for exact paths and schemas per client).
    - Add a `netlogo` server entry with:
      - `command`: `netlogo-mcp`
      - `env.NETLOGO_HOME`: the NetLogo path you detected
@@ -112,9 +111,7 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
 ## Manual Installation
 
 ```bash
-git clone https://github.com/Razee4315/NetLogo-MCP.git
-cd NetLogo-MCP
-pip install -e .
+pip install netlogo-mcp
 ```
 
 Then add the server to your MCP client. For Claude Code, add to your **project's** `.mcp.json`:
@@ -139,6 +136,14 @@ Restart Claude Code and verify with `/mcp`.
 > **Tip:** prefer project-scope config (`.mcp.json` in one project) over global config — a global entry loads the server in every session of every project.
 
 **Using Cursor, Windsurf, VS Code, Cline, Continue, Roo Code, Zed, OpenCode, Codex, or Claude Desktop?** See [docs/CLIENTS.md](docs/CLIENTS.md) for exact config for all 11 clients. All configuration options (GUI/headless mode, directories, limits) are in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
+**Developing or contributing?** Clone the repo and install editable instead:
+
+```bash
+git clone https://github.com/Razee4315/NetLogo-MCP.git
+cd NetLogo-MCP
+pip install -e ".[dev]"
+```
 
 ## Quick Start
 
@@ -182,6 +187,11 @@ Once connected, try these prompts in any MCP client:
 ## Listed on
 
 [![MCP Badge](https://lobehub.com/badge/mcp/razee4315-netlogo_mcp)](https://lobehub.com/mcp/razee4315-netlogo_mcp)
+
+## Citing
+
+If you use NetLogo MCP in research or teaching, please cite it — click
+**"Cite this repository"** in the GitHub sidebar, or see [CITATION.cff](CITATION.cff).
 
 ## Author
 

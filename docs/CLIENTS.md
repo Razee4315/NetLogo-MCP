@@ -257,4 +257,4 @@ Add to your Codex MCP configuration (typically `codex.json` or via the Codex CLI
 }
 ```
 
-> **Note:** Codex runs MCP servers as stdio subprocesses. Make sure `netlogo-mcp` is on your PATH (installed via `pip install -e .`).
+> **Note:** Codex runs MCP servers as stdio subprocesses. Make sure `netlogo-mcp` is on your PATH (installed via `pip install netlogo-mcp`).

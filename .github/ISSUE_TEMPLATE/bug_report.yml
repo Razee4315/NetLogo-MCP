@@ -1,0 +1,64 @@
+name: Bug report
+description: Something isn't working
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: |
+        I asked Claude to "create a predator-prey model" and got...
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The prompt you gave your AI assistant, or the tool call that failed.
+      placeholder: |
+        1. Connect the server in Claude Code
+        2. Ask: "..."
+        3. Error: ...
+    validations:
+      required: true
+
+  - type: input
+    id: mcp-client
+    attributes:
+      label: MCP client
+      placeholder: e.g. Claude Code, Claude Desktop, Cursor, Cline
+    validations:
+      required: true
+
+  - type: input
+    id: netlogo-version
+    attributes:
+      label: NetLogo version
+      placeholder: e.g. 7.0.3
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: e.g. Windows 11, macOS 15, Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: Python and Java versions
+      placeholder: e.g. Python 3.12, Temurin JDK 21
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server output / logs
+      description: |
+        Run `netlogo-mcp` manually in a terminal to capture error output, or check
+        your MCP client's logs. Paste anything relevant here.
+      render: shell

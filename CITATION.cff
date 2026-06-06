@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use NetLogo MCP in your research, please cite it as below."
+type: software
+title: "NetLogo MCP: A Model Context Protocol server for NetLogo agent-based modeling"
+abstract: >-
+  The first MCP (Model Context Protocol) server for NetLogo, enabling AI
+  assistants to create, run, and analyze agent-based models through natural
+  conversation — including declarative interface widgets, BehaviorSpace
+  parameter sweeps, and safe access to the CoMSES Net model library.
+authors:
+  - family-names: Abbas
+    given-names: Saqlain
+    email: saqlainrazee@gmail.com
+repository-code: "https://github.com/Razee4315/NetLogo-MCP"
+license: MIT
+version: 1.0.0
+date-released: 2026-06-06
+keywords:
+  - NetLogo
+  - agent-based modeling
+  - Model Context Protocol
+  - MCP
+  - simulation
+  - AI assistants
