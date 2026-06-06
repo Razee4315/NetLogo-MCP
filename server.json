@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.razee4315/netlogo-mcp",
+  "name": "io.github.Razee4315/netlogo-mcp",
   "title": "NetLogo MCP",
   "description": "Create, run, and analyze NetLogo agent-based models through natural conversation",
   "version": "1.0.1",
