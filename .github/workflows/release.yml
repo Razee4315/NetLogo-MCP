@@ -61,6 +61,46 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
+  publish-mcp-registry:
+    name: Publish to MCP Registry
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # OIDC authentication to the MCP Registry
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for PyPI to serve the new version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          for i in $(seq 1 20); do
+            if curl -sf "https://pypi.org/pypi/netlogo-mcp/$VERSION/json" > /dev/null; then
+              echo "netlogo-mcp $VERSION is visible on PyPI"
+              exit 0
+            fi
+            echo "Attempt $i: not visible yet, waiting 15s..."
+            sleep 15
+          done
+          echo "::error::netlogo-mcp $VERSION never appeared on PyPI"
+          exit 1
+
+      - name: Set version in server.json from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' server.json > server.tmp
+          mv server.tmp server.json
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server to MCP Registry
+        run: ./mcp-publisher publish
+
   github-release:
     name: Create GitHub Release
     needs: publish-pypi
