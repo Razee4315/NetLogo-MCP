@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.svg" width="250" alt="NetLogo MCP">
+  <img src="assets/hero-banner.png" alt="NetLogo MCP — Talk to NetLogo. AI runs the simulation." width="800">
 </p>
 
 <p align="center">
@@ -25,9 +25,13 @@ Instead of manually writing NetLogo code, clicking buttons, and tweaking sliders
 
 The AI writes the code, runs the simulation, and shows you the results — all through conversation.
 
-```
-You (in any MCP client) → AI Assistant → MCP Protocol → NetLogo MCP Server → NetLogo (GUI or headless JVM)
-```
+<p align="center">
+  <img src="assets/how-it-works.png" alt="1. You describe the model — 2. AI writes the NetLogo code — 3. The simulation comes alive" width="800">
+</p>
+
+<p align="center">
+  <img src="assets/architecture.png" alt="You → AI Assistant → NetLogo MCP Server → NetLogo (GUI or headless JVM)" width="800">
+</p>
 
 By default a real NetLogo window opens (on first use) so you can watch your simulations run live. Headless mode is available for CI or servers.
 
@@ -203,3 +207,9 @@ LinkedIn: [@saqlainrazee](https://www.linkedin.com/in/saqlainrazee/)
 ## License
 
 This project is licensed under the [MIT License](LICENSE) — free to use, modify, and distribute for any purpose.
+
+<p align="center">
+  <img src="assets/mascot.png" width="160" alt="Turt, the NetLogo MCP mascot">
+  <br>
+  <em>Happy modeling! 🐢</em>
+</p>
