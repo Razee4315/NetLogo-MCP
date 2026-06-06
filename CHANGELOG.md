@@ -47,6 +47,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   procedure made the whole model fail to load.
 - `to setup-patches` no longer falsely counts as defining `setup`.
 
+### Changed — multi-column widget layout
+
+- Declarative widgets now wrap into additional columns when they'd
+  overflow the column height, and the world view shifts right to sit
+  beside the last column — widget-heavy models no longer pile into one
+  endless strip that runs off the bottom of the window.
+
+### Added — GUI polish
+
+- The NetLogo window is retitled to the model name and brought to the
+  front whenever a model is loaded (`create_model` / `open_model` /
+  `update_model` / `open_comses_model`). Best-effort via the Swing event
+  thread; silent no-op in headless mode.
+- New `watch_simulation(ticks, delay_ms)` tool — runs `go` step-by-step
+  with a pause between steps so a human can actually watch the dynamics
+  unfold in the GUI. Capped at 120s per call; `run_simulation` remains the
+  full-speed data-collection path.
+
+### Added — plot widgets
+
+- The `widgets` schema now supports `{"type": "plot", "pens": [...]}` —
+  live population-dynamics plots in the NetLogo window, the main reason to
+  watch a GUI run. Pens take NetLogo plot code, palette color names (or raw
+  AWT ints), line/bar/point modes, and intervals; axes auto-scale.
+  Verified live: NetLogo 7.0.3 loads the generated XML and pens plot every
+  tick.
+
+### Added — update_model
+
+- New `update_model(code, widgets?)` tool: rewrites the currently loaded
+  `.nlogox` in place and reloads it. Existing widgets are preserved when
+  `widgets` is omitted, so iterating on procedures keeps the interface the
+  user already has. Ends the one-`_created_*.nlogox`-file-per-iteration
+  clutter in the models directory.
+
 ### Added — declarative interface widgets
 
 - `create_model` and `save_model` accept an optional `widgets` list:

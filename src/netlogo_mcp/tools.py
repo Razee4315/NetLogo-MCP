@@ -310,6 +310,33 @@ def _require_model(ctx: Context):
     return nl
 
 
+def _polish_gui_window(title: str) -> None:
+    """Best-effort: title the NetLogo window and bring it to front.
+
+    Posts the work to the Swing event thread via ``invokeLater``. Silently a
+    no-op when headless (``App.app()`` is unset), when the JVM isn't up, or
+    when NetLogo internals change — window polish must never fail a load.
+    """
+    try:
+        import jpype
+
+        if not jpype.isJVMStarted():
+            return
+        frame = jpype.JClass("org.nlogo.app.App").app().frame()
+
+        def _apply() -> None:
+            try:
+                frame.setTitle(title)
+                frame.toFront()
+            except Exception:  # cosmetic only — never propagate
+                pass
+
+        runnable = jpype.JProxy("java.lang.Runnable", dict={"run": _apply})
+        jpype.JClass("java.awt.EventQueue").invokeLater(runnable)
+    except Exception:
+        return
+
+
 def _wrap_netlogo_error(e: Exception) -> ToolError:
     """Convert a Java/NetLogo exception to a readable ToolError."""
     msg = str(e)
@@ -372,6 +399,7 @@ async def open_model(path: str, ctx: Context) -> str:
         raise _wrap_netlogo_error(e) from e
 
     _set_current_model_path(ctx, p)
+    _polish_gui_window(f"NetLogo — {p.stem}")
     return f"Model loaded: {p.name}"
 
 
@@ -474,6 +502,49 @@ async def run_simulation(
         lines.append(f"| {tick} | {vals} |")
 
     return "\n".join(lines)
+
+
+@mcp.tool()
+async def watch_simulation(
+    ticks: int,
+    ctx: Context,
+    delay_ms: int = 150,
+    go_command: str = "go",
+) -> str:
+    """Run the simulation SLOWLY so a human can watch it in the GUI window.
+
+    Unlike run_simulation (full speed, returns data), this steps `go` once
+    per tick with a pause between steps — use it for demos and teaching when
+    the user wants to see the dynamics unfold live. In headless mode it
+    works but there's nothing to watch; prefer run_simulation there.
+
+    Args:
+        ticks: Steps to run (1-2000).
+        delay_ms: Pause between steps in milliseconds (10-2000, default 150).
+            ticks x delay_ms must stay under 120 seconds — chain calls for
+            longer demos.
+        go_command: The command to run each step (default "go").
+    """
+    if not 1 <= ticks <= 2000:
+        raise ToolError("ticks must be between 1 and 2000.")
+    if not 10 <= delay_ms <= 2000:
+        raise ToolError("delay_ms must be between 10 and 2000.")
+    if ticks * delay_ms > 120_000:
+        raise ToolError(
+            f"ticks x delay_ms = {ticks * delay_ms}ms exceeds the 120s cap — "
+            "lower one of them and chain calls for longer demos."
+        )
+    nl = _require_model(ctx)
+    _check_restricted(go_command)
+
+    for _ in range(ticks):
+        try:
+            await _jvm_call(ctx, nl.command, go_command)
+        except Exception as e:
+            raise _wrap_netlogo_error(e) from e
+        await asyncio.sleep(delay_ms / 1000)
+
+    return f"Watched {ticks} steps at {delay_ms}ms per step."
 
 
 def _decimate_keep_last(df: pd.DataFrame, max_rows: int) -> pd.DataFrame:
@@ -840,6 +911,12 @@ async def create_model(
             {"type": "switch", "variable": "show-trails?", "default": false}
             {"type": "button", "code": "setup", "label"?, "forever"?: false}
             {"type": "monitor", "code": "count sheep", "label"?, "precision"?: 0}
+            {"type": "plot", "label"?: "populations", "x_axis"?, "y_axis"?,
+             "pens": [{"code": "plot count sheep", "label"?,
+                       "color"?: "green", "mode"?: 0, "interval"?: 1}]}
+            Plot pens redraw on every tick (and on update-plots). Pen colors:
+            palette names (black/gray/white/red/orange/brown/yellow/green/
+            lime/turquoise/cyan/sky/blue/violet/magenta/pink) or AWT ints.
             IMPORTANT: slider/switch widgets DEFINE their variable — do NOT
             also declare it in `globals [...]` or the model won't compile.
             Include setup/go buttons yourself when passing widgets. When
@@ -865,7 +942,95 @@ async def create_model(
         raise _wrap_netlogo_error(e) from e
 
     _set_current_model_path(ctx, model_path)
+    _polish_gui_window(f"NetLogo — {model_path.stem}")
     return f"Model created and loaded: {model_path}"
+
+
+def _replace_in_nlogox(
+    path: Path, code: str, widgets: list[dict[str, Any]] | None
+) -> str:
+    """Rewrite the ``<code>`` (and optionally ``<widgets>``) of a .nlogox file.
+
+    Everything else — info tab, shapes, existing widgets when ``widgets`` is
+    None — is preserved, so iterating on procedures doesn't clobber an
+    interface the user (or an earlier call) already set up.
+    """
+    import xml.etree.ElementTree as ET
+
+    try:
+        tree = ET.parse(path)
+    except ET.ParseError as exc:
+        raise ToolError(f"Could not parse {path.name} as .nlogox XML: {exc}") from exc
+    root = tree.getroot()
+
+    code_el = root.find("code")
+    if code_el is None:
+        code_el = ET.Element("code")
+        root.insert(0, code_el)
+    code_el.text = code
+
+    if widgets is not None:
+        new_widgets = ET.fromstring(
+            f"<widgets>{_render_widgets(code, widgets)}</widgets>"
+        )
+        old_widgets = root.find("widgets")
+        if old_widgets is not None:
+            idx = list(root).index(old_widgets)
+            root.remove(old_widgets)
+            root.insert(idx, new_widgets)
+        else:
+            root.insert(1, new_widgets)
+
+    body = ET.tostring(root, encoding="unicode")
+    return f'<?xml version="1.0" encoding="utf-8"?>\n{body}\n'
+
+
+@mcp.tool()
+async def update_model(
+    code: str, ctx: Context, widgets: list[dict[str, Any]] | None = None
+) -> str:
+    """Update the currently loaded model's code in place and reload it.
+
+    Prefer this over create_model when iterating on an existing model: the
+    same .nlogox file is rewritten and reloaded, so the NetLogo window stays
+    on one model and the models directory doesn't grow a new file per
+    iteration.
+
+    Args:
+        code: New NetLogo procedures — a FULL replacement of the code tab,
+              not a diff. Raw procedures only (no .nlogox XML).
+        widgets: Optional new interface widgets (same schema as
+              create_model). When omitted, the model's existing widgets are
+              preserved unchanged — sliders keep their positions and values.
+    """
+    current = _current_model_path(ctx)
+    if current is None:
+        raise ToolError("No model is loaded. Use create_model or open_model first.")
+    path = Path(current)
+    if path.suffix != ".nlogox":
+        raise ToolError(
+            f"update_model only supports .nlogox models; {path.name} is a "
+            "legacy .nlogo file. Use create_model to make an editable copy."
+        )
+    if code.strip().startswith("<?xml") or "<model" in code[:200]:
+        raise ToolError(
+            "update_model takes raw NetLogo procedures, not a full .nlogox "
+            "document — pass full XML to create_model instead."
+        )
+
+    nl = _nl(ctx)  # a model is loaded, so the JVM is already up
+
+    new_xml = _replace_in_nlogox(path, code, widgets)
+    path.write_text(new_xml, encoding="utf-8")
+
+    try:
+        await _jvm_call(ctx, nl.load_model, str(path).replace("\\", "/"))
+    except Exception as e:
+        raise _wrap_netlogo_error(e) from e
+
+    _polish_gui_window(f"NetLogo — {path.stem}")
+    kept = "existing widgets kept" if widgets is None else "widgets replaced"
+    return f"Model updated and reloaded: {path.name} ({kept})"
 
 
 # ── Widget generation ────────────────────────────────────────────────────────
@@ -873,15 +1038,76 @@ async def create_model(
 _WIDGET_X = 10
 _WIDGET_WIDTH = 190
 _WIDGET_GAP = 10
-_WIDGET_HEIGHTS = {"button": 45, "slider": 50, "switch": 40, "monitor": 60}
+_WIDGET_HEIGHTS = {"button": 45, "slider": 50, "switch": 40, "monitor": 60, "plot": 160}
 
-_VIEW_XML = (
-    '<view x="210" wrappingAllowedX="true" y="10" frameRate="30.0"'
-    ' minPycor="-16" height="430" showTickCounter="true" patchSize="13.0"'
-    ' fontSize="10" wrappingAllowedY="true" width="430"'
-    ' tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16"'
-    ' minPxcor="-16"></view>'
-)
+# AWT signed-int pen colors, mirroring NetLogo's swatch palette.
+_PEN_COLORS = {
+    "black": (0, 0, 0),
+    "gray": (140, 140, 140),
+    "white": (255, 255, 255),
+    "red": (215, 50, 41),
+    "orange": (241, 106, 14),
+    "brown": (156, 109, 70),
+    "yellow": (237, 237, 49),
+    "green": (88, 176, 49),
+    "lime": (0, 205, 101),
+    "turquoise": (64, 224, 208),
+    "cyan": (84, 196, 196),
+    "sky": (47, 132, 220),
+    "blue": (52, 93, 169),
+    "violet": (143, 107, 177),
+    "magenta": (217, 80, 152),
+    "pink": (255, 167, 179),
+}
+
+# When pens don't specify a color, cycle through visually-distinct ones.
+_DEFAULT_PEN_CYCLE = [
+    "blue",
+    "red",
+    "green",
+    "orange",
+    "violet",
+    "brown",
+    "cyan",
+    "magenta",
+]
+
+
+def _pen_color(value: Any, i: int, j: int) -> int:
+    """Resolve a pen color (palette name or raw AWT int) to a signed int32."""
+    if isinstance(value, bool):
+        raise ToolError(f"widgets[{i}].pens[{j}]: 'color' must be a name or int.")
+    if isinstance(value, int):
+        if not -(1 << 31) <= value < (1 << 31):
+            raise ToolError(
+                f"widgets[{i}].pens[{j}]: color int {value} out of int32 range."
+            )
+        return value
+    if isinstance(value, str) and value.lower() in _PEN_COLORS:
+        r, g, b = _PEN_COLORS[value.lower()]
+        return ((0xFF << 24) | (r << 16) | (g << 8) | b) - (1 << 32)
+    raise ToolError(
+        f"widgets[{i}].pens[{j}]: unknown color {value!r}. Use one of "
+        f"{sorted(_PEN_COLORS)} or a raw AWT integer."
+    )
+
+
+# Widgets that would overflow this column height wrap to a new column.
+_COLUMN_BUDGET = 450
+
+
+def _view_xml(x: int) -> str:
+    """The world view, placed to the right of the widget column(s)."""
+    return (
+        f'<view x="{x}" wrappingAllowedX="true" y="10" frameRate="30.0"'
+        ' minPycor="-16" height="430" showTickCounter="true" patchSize="13.0"'
+        ' fontSize="10" wrappingAllowedY="true" width="430"'
+        ' tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16"'
+        ' minPxcor="-16"></view>'
+    )
+
+
+_VIEW_XML = _view_xml(210)
 
 
 def _has_procedure(code: str, name: str) -> bool:
@@ -891,14 +1117,16 @@ def _has_procedure(code: str, name: str) -> bool:
 
 def _require_finite_number(spec: dict[str, Any], key: str, i: int) -> float:
     val = spec.get(key)
-    if isinstance(val, bool) or not isinstance(val, (int, float)):
+    if isinstance(val, bool) or not isinstance(val, int | float):
         raise ToolError(f"widgets[{i}]: {key!r} must be a number, got {val!r}.")
     if not math.isfinite(val):
         raise ToolError(f"widgets[{i}]: {key!r} must be finite, got {val!r}.")
     return float(val)
 
 
-def _widget_spec_to_xml(spec: dict[str, Any], i: int, y: int) -> str:
+def _widget_spec_to_xml(
+    spec: dict[str, Any], i: int, y: int, x: int = _WIDGET_X
+) -> str:
     """Render one declarative widget spec to .nlogox XML (NetLogo 7 schema)."""
     import xml.sax.saxutils as saxutils
 
@@ -910,7 +1138,7 @@ def _widget_spec_to_xml(spec: dict[str, Any], i: int, y: int) -> str:
             f"widgets[{i}]: type must be one of "
             f"{sorted(_WIDGET_HEIGHTS)}, got {wtype!r}."
         )
-    x, w, h = _WIDGET_X, _WIDGET_WIDTH, _WIDGET_HEIGHTS[wtype]
+    w, h = _WIDGET_WIDTH, _WIDGET_HEIGHTS[wtype]
 
     if wtype in ("slider", "switch"):
         variable = spec.get("variable")
@@ -950,6 +1178,54 @@ def _widget_spec_to_xml(spec: dict[str, Any], i: int, y: int) -> str:
             f' on="{on}" variable={var_attr} display={display_attr}></switch>'
         )
 
+    if wtype == "plot":
+        pens = spec.get("pens")
+        if not isinstance(pens, list) or not pens:
+            raise ToolError(
+                f"widgets[{i}]: plot needs a non-empty 'pens' list, e.g. "
+                '[{"code": "plot count sheep", "color": "green"}].'
+            )
+        display_attr = saxutils.quoteattr(spec.get("label", "plot"))
+        x_axis = saxutils.quoteattr(spec.get("x_axis", "time"))
+        y_axis = saxutils.quoteattr(spec.get("y_axis", ""))
+        pen_parts = []
+        for j, pen in enumerate(pens):
+            if not isinstance(pen, dict):
+                raise ToolError(f"widgets[{i}].pens[{j}] must be an object.")
+            pen_code = pen.get("code")
+            if not isinstance(pen_code, str) or not pen_code.strip():
+                raise ToolError(
+                    f"widgets[{i}].pens[{j}]: each pen needs NetLogo 'code' "
+                    '(e.g. "plot count sheep").'
+                )
+            mode = pen.get("mode", 0)
+            if mode not in (0, 1, 2):
+                raise ToolError(
+                    f"widgets[{i}].pens[{j}]: mode must be 0 (line), 1 (bar), "
+                    f"or 2 (point), got {mode!r}."
+                )
+            interval = (
+                _require_finite_number(pen, "interval", i) if "interval" in pen else 1.0
+            )
+            color = _pen_color(
+                pen.get("color", _DEFAULT_PEN_CYCLE[j % len(_DEFAULT_PEN_CYCLE)]),
+                i,
+                j,
+            )
+            pen_label = saxutils.quoteattr(pen.get("label", pen_code.strip()))
+            pen_parts.append(
+                f'<pen interval="{interval}" mode="{mode}" display={pen_label}'
+                f' color="{color}" legend="true"><setup></setup>'
+                f"<update>{saxutils.escape(pen_code.strip())}</update></pen>"
+            )
+        return (
+            f'<plot x="{x}" y="{y}" width="{w}" height="{h}"'
+            f" display={display_attr} xAxis={x_axis} yAxis={y_axis}"
+            f' xMin="0.0" xMax="10.0" yMin="0.0" yMax="10.0"'
+            f' autoPlotX="true" autoPlotY="true" legend="true">'
+            f"<setup></setup><update></update>{''.join(pen_parts)}</plot>"
+        )
+
     code = spec.get("code")
     if not isinstance(code, str) or not code.strip():
         raise ToolError(
@@ -978,16 +1254,20 @@ def _widget_spec_to_xml(spec: dict[str, Any], i: int, y: int) -> str:
 
 
 def _render_widgets(procedures: str, widgets: list[dict[str, Any]] | None) -> str:
-    """Render the <widgets> children: the view plus a stacked left column.
+    """Render the <widgets> children: the view plus stacked widget columns.
 
-    With no explicit widget specs, Setup/Go buttons are emitted only when the
-    code actually defines those procedures — a button pointing at a missing
-    procedure makes the whole model fail to load.
+    Widgets fill a column top-to-bottom; when one would overflow the column
+    height budget it wraps to a new column, and the world view shifts right
+    to sit beside the last column. With no explicit widget specs, Setup/Go
+    buttons are emitted only when the code actually defines those
+    procedures — a button pointing at a missing procedure makes the whole
+    model fail to load.
     """
-    lines = [_VIEW_XML]
+    column_pitch = _WIDGET_WIDTH + _WIDGET_GAP
     y = _WIDGET_X  # top margin matches the left margin
 
     if widgets is None:
+        lines = []
         if _has_procedure(procedures, "setup"):
             lines.append(
                 f'<button x="{_WIDGET_X}" y="{y}" width="{_WIDGET_WIDTH}"'
@@ -1007,13 +1287,22 @@ def _render_widgets(procedures: str, widgets: list[dict[str, Any]] | None) -> st
             ' height="45" fontSize="11" precision="0"'
             ' display="Time Steps">ticks</monitor>'
         )
-    else:
-        for i, spec in enumerate(widgets):
-            lines.append(_widget_spec_to_xml(spec, i, y))
-            wtype = spec.get("type") if isinstance(spec, dict) else None
-            y += _WIDGET_HEIGHTS.get(wtype, 45) + _WIDGET_GAP  # type: ignore[arg-type]
+        return "\n    ".join([_VIEW_XML, *lines])
 
-    return "\n    ".join(lines)
+    lines = []
+    column = 0
+    for i, spec in enumerate(widgets):
+        wtype = spec.get("type") if isinstance(spec, dict) else None
+        h = _WIDGET_HEIGHTS.get(wtype, 45)  # type: ignore[arg-type]
+        if y > _WIDGET_X and y + h > _COLUMN_BUDGET:
+            column += 1
+            y = _WIDGET_X
+        x = _WIDGET_X + column * column_pitch
+        lines.append(_widget_spec_to_xml(spec, i, y, x=x))
+        y += h + _WIDGET_GAP
+
+    view_x = _WIDGET_X + (column + 1) * column_pitch
+    return "\n    ".join([_view_xml(view_x), *lines])
 
 
 def _wrap_nlogox(
@@ -1664,6 +1953,7 @@ async def open_comses_model(
         raise _wrap_netlogo_error(e) from e
 
     _set_current_model_path(ctx, outcome.selected_netlogo_file.resolve())
+    _polish_gui_window(f"NetLogo — {outcome.selected_netlogo_file.stem}")
     payload["status"] = "loaded_netlogo"
     payload["message"] = (
         f"Loaded NetLogo model: {outcome.selected_netlogo_file.name} "

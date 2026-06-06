@@ -780,3 +780,265 @@ async def test_save_model_with_widgets(mock_context, tmp_path, monkeypatch):
     )
     content = (tmp_path / "widgety.nlogox").read_text(encoding="utf-8")
     assert 'variable="wrap?"' in content and 'on="false"' in content
+
+
+# ── update_model ─────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_update_model_requires_loaded_model(mock_context):
+    from fastmcp.exceptions import ToolError
+
+    from netlogo_mcp.tools import update_model
+
+    with pytest.raises(ToolError, match="No model is loaded"):
+        await update_model("to setup\nend", mock_context)
+
+
+@pytest.mark.asyncio
+async def test_update_model_rewrites_in_place_and_keeps_widgets(
+    mock_context, mock_nl, tmp_path, monkeypatch
+):
+    from netlogo_mcp.tools import update_model
+
+    monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: tmp_path)
+    await create_model(
+        "to setup\n  clear-all\nend",
+        mock_context,
+        widgets=[
+            {
+                "type": "slider",
+                "variable": "density",
+                "min": 0,
+                "max": 100,
+                "default": 60,
+            },
+            {"type": "button", "code": "setup", "label": "Setup"},
+        ],
+    )
+    assert len(list(tmp_path.glob("*.nlogox"))) == 1
+
+    result = await update_model(
+        "to setup\n  clear-all\n  create-turtles density\nend", mock_context
+    )
+    assert "existing widgets kept" in result
+    files = list(tmp_path.glob("*.nlogox"))
+    assert len(files) == 1  # same file rewritten, no new _created_* clutter
+    content = files[0].read_text(encoding="utf-8")
+    assert "create-turtles density" in content  # new code in place
+    assert 'variable="density"' in content  # slider survived the update
+
+
+@pytest.mark.asyncio
+async def test_update_model_replaces_widgets_when_given(
+    mock_context, mock_nl, tmp_path, monkeypatch
+):
+    from netlogo_mcp.tools import update_model
+
+    monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: tmp_path)
+    await create_model(
+        "to setup\nend",
+        mock_context,
+        widgets=[{"type": "slider", "variable": "density", "min": 0, "max": 100}],
+    )
+    await update_model(
+        "to setup\nend",
+        mock_context,
+        widgets=[{"type": "switch", "variable": "trails?", "default": True}],
+    )
+    content = next(tmp_path.glob("*.nlogox")).read_text(encoding="utf-8")
+    assert 'variable="trails?"' in content
+    assert 'variable="density"' not in content
+
+
+@pytest.mark.asyncio
+async def test_update_model_rejects_full_xml(
+    mock_context, mock_nl, tmp_path, monkeypatch
+):
+    from fastmcp.exceptions import ToolError
+
+    from netlogo_mcp.tools import update_model
+
+    monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: tmp_path)
+    await create_model("to setup\nend", mock_context)
+    with pytest.raises(ToolError, match="raw NetLogo procedures"):
+        await update_model('<?xml version="1.0"?><model></model>', mock_context)
+
+
+@pytest.mark.asyncio
+async def test_update_model_rejects_legacy_nlogo(mock_context, mock_nl, tmp_path):
+    from fastmcp.exceptions import ToolError
+
+    from netlogo_mcp.tools import update_model
+
+    legacy = tmp_path / "old.nlogo"
+    legacy.write_text("to setup end")
+    await open_model(str(legacy), mock_context)
+    with pytest.raises(ToolError, match="legacy .nlogo"):
+        await update_model("to setup\nend", mock_context)
+
+
+# ── plot widgets ─────────────────────────────────────────────────────────────
+
+
+def test_wrap_nlogox_with_plot_widget():
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    xml = _wrap_nlogox(
+        "to setup\nend",
+        widgets=[
+            {
+                "type": "plot",
+                "label": "populations",
+                "x_axis": "time",
+                "y_axis": "count",
+                "pens": [
+                    {"code": "plot count sheep", "label": "sheep", "color": "green"},
+                    {"code": "plot count wolves"},  # default color from cycle
+                ],
+            }
+        ],
+    )
+    assert 'display="populations"' in xml
+    assert 'xAxis="time"' in xml and 'yAxis="count"' in xml
+    assert "<update>plot count sheep</update>" in xml
+    assert 'autoPlotX="true"' in xml and 'autoPlotY="true"' in xml
+    # green palette entry (88,176,49) -> AWT signed int
+    assert f'color="{((0xFF << 24) | (88 << 16) | (176 << 8) | 49) - (1 << 32)}"' in xml
+    assert xml.count("<pen ") == 2
+
+
+def test_plot_pen_color_accepts_raw_int():
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    xml = _wrap_nlogox(
+        "to setup\nend",
+        widgets=[{"type": "plot", "pens": [{"code": "plot ticks", "color": -612749}]}],
+    )
+    assert 'color="-612749"' in xml
+
+
+@pytest.mark.parametrize(
+    "bad_plot,err_match",
+    [
+        ({"type": "plot", "pens": []}, "non-empty 'pens'"),
+        ({"type": "plot", "pens": [{"label": "x"}]}, "needs NetLogo 'code'"),
+        (
+            {"type": "plot", "pens": [{"code": "plot 1", "color": "chartreuse"}]},
+            "unknown color",
+        ),
+        ({"type": "plot", "pens": [{"code": "plot 1", "mode": 7}]}, "mode must be"),
+    ],
+)
+def test_plot_widget_validation(bad_plot, err_match):
+    from fastmcp.exceptions import ToolError
+
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    with pytest.raises(ToolError, match=err_match):
+        _wrap_nlogox("to setup\nend", widgets=[bad_plot])
+
+
+# ── watch_simulation ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_watch_simulation_runs_go_per_step(mock_context, mock_nl):
+    from netlogo_mcp.tools import watch_simulation
+
+    mock_nl._model_loaded = True
+    calls = []
+    original = mock_nl.command
+    mock_nl.command = lambda cmd: (calls.append(cmd), original(cmd))[1]
+
+    result = await watch_simulation(3, mock_context, delay_ms=10)
+    assert calls == ["go", "go", "go"]
+    assert "3 steps" in result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ticks,delay,err",
+    [
+        (0, 100, "ticks must be"),
+        (5000, 100, "ticks must be"),
+        (10, 5, "delay_ms must be"),
+        (10, 9999, "delay_ms must be"),
+        (2000, 2000, "120s cap"),
+    ],
+)
+async def test_watch_simulation_validation(mock_context, mock_nl, ticks, delay, err):
+    from fastmcp.exceptions import ToolError
+
+    from netlogo_mcp.tools import watch_simulation
+
+    mock_nl._model_loaded = True
+    with pytest.raises(ToolError, match=err):
+        await watch_simulation(ticks, mock_context, delay_ms=delay)
+
+
+def test_polish_gui_window_noop_without_jvm():
+    """Must never raise — cosmetic only, and headless/JVM-less is normal."""
+    from netlogo_mcp.tools import _polish_gui_window
+
+    _polish_gui_window("NetLogo — anything")  # no JVM in unit tests: silent no-op
+
+
+# ── multi-column widget layout ───────────────────────────────────────────────
+
+
+def test_widgets_overflow_into_second_column():
+    """Widgets past the column height budget wrap right; view shifts over."""
+    import re as _re
+
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    sliders = [
+        {"type": "slider", "variable": f"var-{k}", "min": 0, "max": 10}
+        for k in range(9)  # 9 x (50+10) = 540 > 450 budget -> wraps
+    ]
+    xml = _wrap_nlogox("to setup\nend", widgets=sliders)
+    xs = [int(m) for m in _re.findall(r'<slider x="(\d+)"', xml)]
+    assert set(xs) == {10, 210}  # two columns
+    assert xs.count(10) == 7  # y: 10..370 fit; 430+50 > 450 wraps
+    assert xs.count(210) == 2
+    view_x = int(_re.search(r'<view x="(\d+)"', xml).group(1))
+    assert view_x == 410  # view sits right of the second column
+
+
+def test_few_widgets_stay_single_column():
+    import re as _re
+
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    xml = _wrap_nlogox(
+        "to setup\nend",
+        widgets=[
+            {"type": "button", "code": "setup"},
+            {"type": "switch", "variable": "on?", "default": True},
+        ],
+    )
+    view_x = int(_re.search(r'<view x="(\d+)"', xml).group(1))
+    assert view_x == 210  # unchanged back-compat layout
+    assert '<button x="10"' in xml and '<switch x="10"' in xml
+
+
+def test_tall_plot_wraps_cleanly():
+    import re as _re
+
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    xml = _wrap_nlogox(
+        "to setup\nend",
+        widgets=[
+            {"type": "slider", "variable": "a", "min": 0, "max": 1},  # y=10
+            {"type": "slider", "variable": "b", "min": 0, "max": 1},  # y=70
+            {"type": "slider", "variable": "c", "min": 0, "max": 1},  # y=130
+            {"type": "slider", "variable": "d", "min": 0, "max": 1},  # y=190
+            {"type": "slider", "variable": "e", "min": 0, "max": 1},  # y=250
+            # 310 + 160 = 470 > 450 -> plot starts a new column at y=10
+            {"type": "plot", "pens": [{"code": "plot ticks"}]},
+        ],
+    )
+    m = _re.search(r'<plot x="(\d+)" y="(\d+)"', xml)
+    assert (int(m.group(1)), int(m.group(2))) == (210, 10)
