@@ -11,6 +11,9 @@ NetLogo_MCP/
 ├── .github/workflows/ci.yml    # CI pipeline (lint, type check, test)
 ├── CHANGELOG.md                # Version history
 ├── docs/
+│   ├── TOOLS.md                # Full tool reference, widget schema, BehaviorSpace & CoMSES
+│   ├── CONFIGURATION.md        # Environment variables, GUI/headless, startup timing
+│   ├── SECURITY.md             # Security model and trust boundary
 │   ├── CLIENTS.md              # Setup instructions for all 11 MCP clients
 │   └── DEVELOPMENT.md          # This file
 ├── src/
@@ -32,6 +35,7 @@ NetLogo_MCP/
 │   └── experiments/            # BehaviorSpace setup XMLs + table CSVs
 └── tests/
     ├── conftest.py             # Mock fixtures (no JVM needed)
+    ├── manual_smoke.py         # Live end-to-end check (real NetLogo, run by hand)
     ├── test_server.py
     ├── test_tools.py
     ├── test_bspace.py          # BehaviorSpace XML/parse/CSV unit tests (no JVM)
@@ -64,6 +68,13 @@ pytest tests/ -v --cov=netlogo_mcp --cov-report=term-missing
 
 Tests use mock fixtures — no Java/NetLogo installation needed to run them.
 
+For a live end-to-end check against a real NetLogo install (lazy JVM boot,
+widget XML acceptance, protocol resilience after NetLogo errors):
+
+```bash
+python tests/manual_smoke.py   # headless; needs NETLOGO_HOME in env or .env
+```
+
 ## Linting & Formatting
 
 ```bash
@@ -82,21 +93,31 @@ Pre-commit hooks (installed via `pre-commit install`) will run these automatical
 ## Architecture Notes
 
 ### Stdout Protection
-The MCP stdio transport uses stdout for JSON-RPC. JPype/JVM writes to stdout by default, which would corrupt the protocol. `server.py` redirects stdout to stderr before any JVM import and restores it only for `mcp.run()`.
+The MCP stdio transport uses stdout for JSON-RPC, and two writers can corrupt it:
 
-### Eager JVM Startup
-The NetLogo JVM is started in the lifespan context manager (before FastMCP accepts MCP requests). This is critical because:
-- Blocking the asyncio event loop inside a tool call prevents FastMCP from sending responses back.
-- Starting in lifespan blocks before the protocol is active, so there's nothing to block.
-- First connection takes 30-60s while the JVM warms up; every tool call after is instant.
+1. **The JVM** — `System.out` writes to OS-level fd 1 directly, bypassing Python's `sys.stdout` entirely. Python-level redirection can never protect against this.
+2. **pynetlogo** — it `print()`s Java stack traces to `sys.stdout` whenever a NetLogo command/reporter/load fails.
+
+`main()` neutralizes both before serving: fd 1 is `os.dup`'d and the private copy handed to the transport through a `_HybridStdout` object (`sys.stdout.buffer` → protocol fd for the transport; text-level `write()` → stderr for prints), then fd 1 is re-pointed at stderr with `os.dup2(2, 1)`. The lifespan must NOT touch `sys.stdout` — FastMCP 3 enters the lifespan *before* binding the stdio transport.
+
+### Stdin Protection (Windows JVM deadlock)
+The transport keeps a pending blocking read on the stdin pipe from a worker thread. Windows serializes operations on a synchronous pipe's file object — while that read is pending, even metadata probes (`GetFileType`) on the same pipe block. The JVM probes the standard handles during `CreateJavaVM`, so lazy JVM startup deadlocked until the client happened to send a byte. `main()` therefore also privatizes stdin: the transport reads a duplicate handle, while fd 0 and the Win32 `STD_INPUT_HANDLE` point at devnull. (This pathology is why an earlier lazy-startup attempt was abandoned for eager startup — under FastMCP 3, the eager lifespan ran before the transport started reading stdin.)
+
+### Lazy JVM Startup
+The JVM boots on the **first tool call that needs the workspace** (`open_model` / `create_model` / `open_comses_model`), via `tools._ensure_netlogo`:
+
+- Startup runs through `asyncio.to_thread` under the workspace lock, so the event loop (and MCP heartbeats) stay responsive during the 30-60s boot. (An earlier lazy implementation blocked the event loop inside the tool call — that's why the project temporarily used eager startup. `_jvm_call`'s thread offloading removed that constraint.)
+- Connecting an MCP client no longer pops a NetLogo window — it only appears when a model tool is actually used.
+- Tools that don't need the JVM (`server_info`, `list_models`, CoMSES search/read, BehaviorSpace list/preview) work immediately.
+- `NETLOGO_EAGER_START=true` restores boot-at-launch for users who want to pre-warm the JVM.
 
 ### Thread Safety
 - `thd=False` is passed to `pynetlogo.NetLogoLink` — JPype handles the Swing EDT internally. Setting `thd=True` hangs on Windows.
-- The JVM's Java class loader is thread-local. All tool calls must happen on the same thread that initialized the JVM. `asyncio.to_thread` breaks this.
-- Never wrap tool calls in `protect_stdout` — swapping `sys.stdout` between calls corrupts JPype's Java thread context.
+- All JVM calls go through `tools._jvm_call`, which serializes them under the lifespan's `workspace_lock` and runs them via `asyncio.to_thread`. JPype attaches worker threads to the JVM automatically; the lock guarantees single-flight access to the shared workspace.
+- Don't swap `sys.stdout` around individual tool calls — the permanent fd-level redirect in `main()` already covers JVM output, and per-call swapping races with other threads mid-write.
 
 ### GUI vs Headless
-Controlled by the `NETLOGO_GUI` env var (defaults to `true`). The GUI window serves as visual confirmation the server is running — better UX than headless-by-default.
+Controlled by the `NETLOGO_GUI` env var (defaults to `true`). With lazy startup, the GUI window doubles as visual confirmation that the first model call succeeded.
 
 ### BehaviorSpace runs in a separate JVM
 The MCP server's interactive workspace stays alive while `run_experiment` spawns a fresh `NetLogo_Console --headless` (or `netlogo-headless.bat`) subprocess. Trade-offs:

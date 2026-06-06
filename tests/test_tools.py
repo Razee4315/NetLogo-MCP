@@ -484,7 +484,9 @@ async def test_save_model_success(mock_context, tmp_path, monkeypatch):
     assert "clear-all" in content
     assert "<?xml" in content  # envelope was added
     assert 'display="Setup">setup</button>' in content
-    assert 'display="Go">go</button>' in content
+    # code defines no `go` procedure, so no Go button is emitted —
+    # a button pointing at a missing procedure breaks model load
+    assert 'display="Go">go</button>' not in content
     assert 'display="Time Steps">ticks</monitor>' in content
 
 
@@ -574,3 +576,207 @@ async def test_server_info_includes_current_model(mock_context, mock_nl, tmp_pat
     info = json.loads(result)
     assert info["current_model_path"] is not None
     assert info["current_model_path"].endswith("test.nlogo")
+
+
+# ── lazy JVM startup (_ensure_netlogo) ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ensure_netlogo_boots_once_and_caches(mock_nl):
+    """First call boots via the factory; later calls reuse the workspace."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from netlogo_mcp.tools import _ensure_netlogo
+
+    starts = []
+
+    def factory():
+        starts.append(1)
+        return mock_nl, "NetLogo 7.0.3"
+
+    ctx = MagicMock()
+    state = {
+        "netlogo": None,
+        "netlogo_version": None,
+        "start_netlogo": factory,
+        "workspace_lock": asyncio.Lock(),
+    }
+    ctx.request_context.lifespan_context = state
+
+    nl1 = await _ensure_netlogo(ctx)
+    nl2 = await _ensure_netlogo(ctx)
+    assert nl1 is mock_nl and nl2 is mock_nl
+    assert starts == [1]
+    assert state["netlogo_version"] == "NetLogo 7.0.3"
+
+
+@pytest.mark.asyncio
+async def test_ensure_netlogo_failure_is_wrapped(mock_nl):
+    """A JVM boot failure surfaces as a readable ToolError, not a stack dump."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from fastmcp.exceptions import ToolError
+
+    from netlogo_mcp.tools import _ensure_netlogo
+
+    def factory():
+        raise OSError("NETLOGO_HOME points nowhere")
+
+    ctx = MagicMock()
+    ctx.request_context.lifespan_context = {
+        "netlogo": None,
+        "netlogo_version": None,
+        "start_netlogo": factory,
+        "workspace_lock": asyncio.Lock(),
+    }
+
+    with pytest.raises(ToolError, match="NetLogo failed to start"):
+        await _ensure_netlogo(ctx)
+
+
+@pytest.mark.asyncio
+async def test_command_before_jvm_boot_reports_no_model():
+    """On a lazy server with no JVM yet, model-requiring tools say so clearly."""
+    from unittest.mock import MagicMock
+
+    from fastmcp.exceptions import ToolError
+
+    ctx = MagicMock()
+    ctx.request_context.lifespan_context = {
+        "netlogo": None,
+        "start_netlogo": lambda: None,
+    }
+
+    with pytest.raises(ToolError, match="No model is loaded"):
+        await command("setup", ctx)
+
+
+# ── widget generation (_wrap_nlogox / widgets param) ─────────────────────────
+
+
+def test_wrap_nlogox_omits_buttons_for_missing_procedures():
+    """A button pointing at a missing procedure breaks model load — only
+    emit Setup/Go buttons when the code defines them."""
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    xml = _wrap_nlogox("to wander\n  fd 1\nend")
+    assert "<button" not in xml
+    assert 'display="Time Steps">ticks</monitor>' in xml
+    assert "<view " in xml
+
+
+def test_wrap_nlogox_emits_only_defined_buttons():
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    xml = _wrap_nlogox("to go\n  tick\nend")
+    assert 'display="Go">go</button>' in xml
+    assert 'display="Setup">setup</button>' not in xml
+
+
+def test_wrap_nlogox_setup_prefix_is_not_setup():
+    """`to setup-patches` must not count as defining `setup`."""
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    xml = _wrap_nlogox("to setup-patches\n  ask patches [ set pcolor green ]\nend")
+    assert "<button" not in xml
+
+
+def test_wrap_nlogox_with_slider_and_switch():
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    xml = _wrap_nlogox(
+        "to setup\nend",
+        widgets=[
+            {
+                "type": "slider",
+                "variable": "num-sheep",
+                "min": 0,
+                "max": 250,
+                "default": 100,
+                "step": 5,
+            },
+            {"type": "switch", "variable": "trails?", "default": True},
+            {"type": "button", "code": "setup", "label": "Setup"},
+            {"type": "monitor", "code": "count turtles", "precision": 0},
+        ],
+    )
+    assert 'variable="num-sheep"' in xml
+    assert 'min="0.0"' in xml and 'max="250.0"' in xml
+    assert 'default="100.0"' in xml and 'step="5.0"' in xml
+    assert "<switch" in xml and 'on="true"' in xml and 'variable="trails?"' in xml
+    assert 'display="Setup">setup</button>' in xml
+    assert 'precision="0"' in xml and ">count turtles</monitor>" in xml
+    # explicit widgets replace the auto Setup/Go column
+    assert xml.count("<button") == 1
+
+
+@pytest.mark.parametrize(
+    "bad_widget,err_match",
+    [
+        ({"type": "dial", "variable": "x"}, "type must be one of"),
+        ({"type": "slider", "variable": "2bad", "min": 0, "max": 1}, "identifier"),
+        ({"type": "slider", "variable": "x", "min": 5, "max": 5}, "min"),
+        ({"type": "slider", "variable": "x", "min": 0, "max": "z"}, "number"),
+        ({"type": "button", "code": "   "}, "non-empty"),
+        ({"type": "monitor", "code": "ticks", "precision": "high"}, "integer"),
+    ],
+)
+def test_widget_spec_validation(bad_widget, err_match):
+    from fastmcp.exceptions import ToolError
+
+    from netlogo_mcp.tools import _wrap_nlogox
+
+    with pytest.raises(ToolError, match=err_match):
+        _wrap_nlogox("to setup\nend", widgets=[bad_widget])
+
+
+@pytest.mark.asyncio
+async def test_create_model_rejects_widgets_with_full_xml(mock_context):
+    from fastmcp.exceptions import ToolError
+
+    xml = '<?xml version="1.0"?><model version="NetLogo 7.0.3"><code>to setup end</code></model>'
+    with pytest.raises(ToolError, match="widgets can only be used"):
+        await create_model(
+            xml, mock_context, widgets=[{"type": "button", "code": "go"}]
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_model_with_widgets(mock_context, mock_nl, tmp_path, monkeypatch):
+    monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: tmp_path)
+    code = "to setup\n  clear-all\n  reset-ticks\nend"
+    result = await create_model(
+        code,
+        mock_context,
+        widgets=[
+            {
+                "type": "slider",
+                "variable": "density",
+                "min": 0,
+                "max": 100,
+                "default": 60,
+            },
+            {"type": "button", "code": "setup", "label": "Setup"},
+        ],
+    )
+    assert "created" in result.lower()
+    created = list(tmp_path.glob("_created_*.nlogox"))
+    assert len(created) == 1
+    content = created[0].read_text(encoding="utf-8")
+    assert 'variable="density"' in content
+    assert 'display="Setup">setup</button>' in content
+
+
+@pytest.mark.asyncio
+async def test_save_model_with_widgets(mock_context, tmp_path, monkeypatch):
+    monkeypatch.setattr("netlogo_mcp.tools.get_models_dir", lambda: tmp_path)
+    await save_model(
+        "widgety",
+        "to go\n  tick\nend",
+        mock_context,
+        widgets=[{"type": "switch", "variable": "wrap?", "default": False}],
+    )
+    content = (tmp_path / "widgety.nlogox").read_text(encoding="utf-8")
+    assert 'variable="wrap?"' in content and 'on="false"' in content

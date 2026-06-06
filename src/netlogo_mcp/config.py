@@ -73,6 +73,18 @@ def get_gui_mode() -> bool:
     return val not in ("false", "0", "no")
 
 
+def get_eager_start() -> bool:
+    """Return True if the JVM should boot at server startup instead of lazily.
+
+    Default is lazy (False): the NetLogo window / JVM only appears on the
+    first tool call that needs the workspace, so connecting an MCP client
+    doesn't pop a NetLogo window the user didn't ask for. Set
+    ``NETLOGO_EAGER_START=true`` to pre-warm the JVM at launch.
+    """
+    val = os.environ.get("NETLOGO_EAGER_START", "false").lower()
+    return val in ("true", "1", "yes")
+
+
 def get_comses_max_download_mb() -> float:
     """Max size of a COMSES archive download, in megabytes.
 

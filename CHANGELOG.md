@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — lazy JVM startup
+
+- The JVM (and the NetLogo GUI window) now starts **lazily** on the first
+  tool call that needs the workspace, instead of the moment an MCP client
+  connects. Connecting Claude/Cursor/etc. no longer pops a NetLogo window
+  you didn't ask for. Startup runs on a worker thread under the workspace
+  lock, so the event loop and MCP heartbeats stay responsive during the
+  30-60s boot. Set `NETLOGO_EAGER_START=true` to restore the old
+  boot-at-launch behavior.
+- `server_info` now reports `jvm_started` so clients can check workspace
+  state without triggering a boot.
+
+### Fixed — JVM startup deadlock on Windows
+
+- The stdio transport keeps a pending blocking read on the stdin pipe from
+  a worker thread; Windows serializes operations on a synchronous pipe's
+  file object, so the JVM's std-handle probes during `CreateJavaVM` blocked
+  behind that read — JVM startup hung until the client happened to send
+  another byte. The server now hands the transport a private duplicate of
+  stdin and points fd 0 (and the Win32 `STD_INPUT_HANDLE`) at devnull, so
+  the JVM never touches the protocol pipe. This was the real reason an
+  earlier lazy-startup attempt was abandoned for eager startup.
+
+### Fixed — protocol corruption on NetLogo errors
+
+- pynetlogo `print()`s Java stack traces to stdout whenever a NetLogo
+  command/reporter/load fails — and stdout is the MCP JSON-RPC channel.
+  One compile error in generated model code could corrupt the protocol
+  stream and leave the session flaky. The server now duplicates fd 1 for
+  the transport's private use, points fd 1 at stderr (covering the JVM's
+  direct `System.out` writes, which bypass Python entirely), and parks
+  Python's `sys.stdout` on stderr for the whole serving phase.
+
+### Fixed — widget generation
+
+- `create_model` / `save_model` no longer emit Setup/Go buttons for
+  procedures that don't exist in the code — a button pointing at a missing
+  procedure made the whole model fail to load.
+- `to setup-patches` no longer falsely counts as defining `setup`.
+
+### Added — declarative interface widgets
+
+- `create_model` and `save_model` accept an optional `widgets` list:
+  sliders, switches, buttons, and monitors with validated names, escaped
+  code, and automatic column layout (NetLogo 7 `.nlogox` widget schema).
+  Slider/switch widgets define their variable, so generated models can use
+  interface globals exactly like hand-built ones — and `set_parameter`
+  works against them out of the box.
+
+### Docs
+
+- README slimmed to the essentials; full tool reference moved to
+  `docs/TOOLS.md`, environment variables and GUI/headless guidance to
+  `docs/CONFIGURATION.md`, and the security model to `docs/SECURITY.md`.
+- `docs/DEVELOPMENT.md` architecture notes rewritten to match the lazy
+  startup and fd-level stdout discipline (the old notes contradicted the
+  code on threading).
+
 ### Security & validation
 
 - `set_parameter` now validates the `name` argument against a NetLogo

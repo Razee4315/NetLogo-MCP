@@ -55,11 +55,54 @@ def _lifespan(ctx: Context) -> dict[str, Any]:
 
 
 def _nl(ctx: Context):  # type: ignore[type-arg]
-    """Get the shared NetLogoLink instance from the lifespan context."""
+    """Get the shared NetLogoLink instance from the lifespan context.
+
+    Raises if the JVM hasn't started yet — tools that may be the first to
+    touch the workspace must use ``_ensure_netlogo`` instead.
+    """
     try:
-        return _lifespan(ctx)["netlogo"]
+        nl = _lifespan(ctx)["netlogo"]
     except KeyError as exc:
         raise ToolError("NetLogo workspace is not initialized.") from exc
+    if nl is None:
+        raise ToolError(
+            "NetLogo has not started yet. Use open_model or create_model "
+            "first — the first call boots the JVM (30-60s)."
+        )
+    return nl
+
+
+async def _ensure_netlogo(ctx: Context):  # type: ignore[type-arg]
+    """Return the live NetLogoLink, booting the JVM on first use.
+
+    Startup is serialized under the workspace lock and runs on a worker
+    thread, so the event loop (and MCP heartbeats) stay responsive during
+    the 30-60s JVM boot. Concurrent callers wait on the lock and reuse the
+    workspace the winner created.
+    """
+    ls = _lifespan(ctx)
+    nl = ls.get("netlogo")
+    if nl is not None:
+        return nl
+
+    factory = ls.get("start_netlogo")
+    if factory is None:
+        raise ToolError("NetLogo workspace is not initialized.")
+
+    async with _workspace_lock(ctx):
+        nl = ls.get("netlogo")  # re-check: another call may have won the race
+        if nl is not None:
+            return nl
+        try:
+            nl, version = await asyncio.to_thread(factory)
+        except Exception as e:
+            raise ToolError(
+                f"NetLogo failed to start: {e}\n\nCheck NETLOGO_HOME and "
+                "JAVA_HOME, then try again."
+            ) from e
+        ls["netlogo"] = nl
+        ls["netlogo_version"] = version
+        return nl
 
 
 def _set_current_model_path(ctx: Context, path: Path | str | None) -> None:
@@ -242,6 +285,10 @@ def _require_model(ctx: Context):
     loaded model, even before reset-ticks. Necessary when the workspace was
     populated outside our tool surface (e.g. tests calling tools directly).
     """
+    ls = _lifespan(ctx)
+    if ls.get("netlogo") is None and "start_netlogo" in ls:
+        # Lazy server, JVM not booted yet — by definition no model is loaded.
+        raise ToolError("No model is loaded. Use open_model or create_model first.")
     nl = _nl(ctx)
     if _current_model_path(ctx) is not None:
         return nl
@@ -308,7 +355,7 @@ async def open_model(path: str, ctx: Context) -> str:
         path: Path to the .nlogo file. Can be absolute, or relative to the
               configured models directory.
     """
-    nl = _nl(ctx)
+    nl = await _ensure_netlogo(ctx)
     p = Path(path)
     if not p.is_absolute():
         p = get_models_dir() / p
@@ -766,20 +813,45 @@ async def export_view(ctx: Context) -> Image:
     return Image(path=export_path)
 
 
+def _validate_widgets_usage(code: str, widgets: list[dict[str, Any]] | None) -> bool:
+    """Return True if code is a full .nlogox document (envelope not needed)."""
+    is_xml = code.strip().startswith("<?xml") or "<model" in code[:200]
+    if is_xml and widgets:
+        raise ToolError(
+            "widgets can only be used with raw procedure code — the full "
+            ".nlogox XML you passed already contains a <widgets> section."
+        )
+    return is_xml
+
+
 @mcp.tool()
-async def create_model(code: str, ctx: Context) -> str:
+async def create_model(
+    code: str, ctx: Context, widgets: list[dict[str, Any]] | None = None
+) -> str:
     """Create a new NetLogo model from code and load it.
 
     Args:
         code: NetLogo model code. Can be just the procedures (globals, breeds,
               setup, go, etc.) — the .nlogox envelope will be added automatically.
               Or provide a full .nlogox XML file.
+        widgets: Optional interface widgets. Each item is an object:
+            {"type": "slider", "variable": "num-sheep", "min": 0, "max": 250,
+             "default": 100, "step": 1, "label"?, "units"?}
+            {"type": "switch", "variable": "show-trails?", "default": false}
+            {"type": "button", "code": "setup", "label"?, "forever"?: false}
+            {"type": "monitor", "code": "count sheep", "label"?, "precision"?: 0}
+            IMPORTANT: slider/switch widgets DEFINE their variable — do NOT
+            also declare it in `globals [...]` or the model won't compile.
+            Include setup/go buttons yourself when passing widgets. When
+            omitted, Setup/Go buttons are auto-added for procedures that
+            exist in the code.
     """
-    nl = _nl(ctx)
+    is_xml = _validate_widgets_usage(code, widgets)
+    nl = await _ensure_netlogo(ctx)
 
     # If user provided raw procedures (not XML), wrap in .nlogox envelope
-    if not code.strip().startswith("<?xml") and "<model" not in code[:200]:
-        code = _wrap_nlogox(code, _nlogox_version(ctx))
+    if not is_xml:
+        code = _wrap_nlogox(code, _nlogox_version(ctx), widgets=widgets)
 
     # Write to models directory and load
     models_dir = get_models_dir()
@@ -796,27 +868,178 @@ async def create_model(code: str, ctx: Context) -> str:
     return f"Model created and loaded: {model_path}"
 
 
-def _wrap_nlogox(procedures: str, version: str = _NLOGOX_VERSION_FALLBACK) -> str:
+# ── Widget generation ────────────────────────────────────────────────────────
+# Widgets stack in a left column; the view sits to their right at x=210.
+_WIDGET_X = 10
+_WIDGET_WIDTH = 190
+_WIDGET_GAP = 10
+_WIDGET_HEIGHTS = {"button": 45, "slider": 50, "switch": 40, "monitor": 60}
+
+_VIEW_XML = (
+    '<view x="210" wrappingAllowedX="true" y="10" frameRate="30.0"'
+    ' minPycor="-16" height="430" showTickCounter="true" patchSize="13.0"'
+    ' fontSize="10" wrappingAllowedY="true" width="430"'
+    ' tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16"'
+    ' minPxcor="-16"></view>'
+)
+
+
+def _has_procedure(code: str, name: str) -> bool:
+    """True if the code defines ``to <name>`` (whole-word, line-anchored)."""
+    return re.search(rf"(?im)^\s*to\s+{re.escape(name)}(?=\s|$)", code) is not None
+
+
+def _require_finite_number(spec: dict[str, Any], key: str, i: int) -> float:
+    val = spec.get(key)
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        raise ToolError(f"widgets[{i}]: {key!r} must be a number, got {val!r}.")
+    if not math.isfinite(val):
+        raise ToolError(f"widgets[{i}]: {key!r} must be finite, got {val!r}.")
+    return float(val)
+
+
+def _widget_spec_to_xml(spec: dict[str, Any], i: int, y: int) -> str:
+    """Render one declarative widget spec to .nlogox XML (NetLogo 7 schema)."""
+    import xml.sax.saxutils as saxutils
+
+    if not isinstance(spec, dict):
+        raise ToolError(f"widgets[{i}] must be an object, got {type(spec).__name__}.")
+    wtype = spec.get("type")
+    if wtype not in _WIDGET_HEIGHTS:
+        raise ToolError(
+            f"widgets[{i}]: type must be one of "
+            f"{sorted(_WIDGET_HEIGHTS)}, got {wtype!r}."
+        )
+    x, w, h = _WIDGET_X, _WIDGET_WIDTH, _WIDGET_HEIGHTS[wtype]
+
+    if wtype in ("slider", "switch"):
+        variable = spec.get("variable")
+        if not isinstance(variable, str) or not _NETLOGO_IDENTIFIER_RE.match(variable):
+            raise ToolError(
+                f"widgets[{i}]: {wtype} needs a 'variable' that is a valid "
+                f"NetLogo identifier, got {variable!r}."
+            )
+        var_attr = saxutils.quoteattr(variable)
+        display_attr = saxutils.quoteattr(spec.get("label", variable))
+        if wtype == "slider":
+            lo = _require_finite_number(spec, "min", i)
+            hi = _require_finite_number(spec, "max", i)
+            if lo >= hi:
+                raise ToolError(
+                    f"widgets[{i}]: slider min ({lo}) must be < max ({hi})."
+                )
+            default = (
+                _require_finite_number(spec, "default", i) if "default" in spec else lo
+            )
+            step = _require_finite_number(spec, "step", i) if "step" in spec else 1.0
+            units = spec.get("units")
+            units_attr = (
+                f" units={saxutils.quoteattr(units)}"
+                if isinstance(units, str) and units
+                else ""
+            )
+            return (
+                f'<slider x="{x}" y="{y}" width="{w}" height="{h}"'
+                f" display={display_attr} variable={var_attr}"
+                f' min="{lo}" max="{hi}" default="{default}" step="{step}"'
+                f' direction="Horizontal"{units_attr}></slider>'
+            )
+        on = "true" if spec.get("default", False) else "false"
+        return (
+            f'<switch x="{x}" y="{y}" width="{w}" height="{h}"'
+            f' on="{on}" variable={var_attr} display={display_attr}></switch>'
+        )
+
+    code = spec.get("code")
+    if not isinstance(code, str) or not code.strip():
+        raise ToolError(
+            f"widgets[{i}]: {wtype} needs non-empty NetLogo 'code' (got {code!r})."
+        )
+    body = saxutils.escape(code.strip())
+    display_attr = saxutils.quoteattr(spec.get("label", code.strip()))
+
+    if wtype == "button":
+        forever = "true" if spec.get("forever", False) else "false"
+        return (
+            f'<button x="{x}" y="{y}" width="{w}" height="{h}"'
+            f' kind="Observer" forever="{forever}"'
+            f' disableUntilTicks="false" display={display_attr}>{body}</button>'
+        )
+
+    precision = spec.get("precision", 2)
+    if isinstance(precision, bool) or not isinstance(precision, int):
+        raise ToolError(
+            f"widgets[{i}]: monitor 'precision' must be an integer, got {precision!r}."
+        )
+    return (
+        f'<monitor x="{x}" y="{y}" width="{w}" height="{h}" fontSize="11"'
+        f' precision="{precision}" display={display_attr}>{body}</monitor>'
+    )
+
+
+def _render_widgets(procedures: str, widgets: list[dict[str, Any]] | None) -> str:
+    """Render the <widgets> children: the view plus a stacked left column.
+
+    With no explicit widget specs, Setup/Go buttons are emitted only when the
+    code actually defines those procedures — a button pointing at a missing
+    procedure makes the whole model fail to load.
+    """
+    lines = [_VIEW_XML]
+    y = _WIDGET_X  # top margin matches the left margin
+
+    if widgets is None:
+        if _has_procedure(procedures, "setup"):
+            lines.append(
+                f'<button x="{_WIDGET_X}" y="{y}" width="{_WIDGET_WIDTH}"'
+                ' height="45" kind="Observer" forever="false"'
+                ' disableUntilTicks="false" display="Setup">setup</button>'
+            )
+            y += 45 + _WIDGET_GAP
+        if _has_procedure(procedures, "go"):
+            lines.append(
+                f'<button x="{_WIDGET_X}" y="{y}" width="{_WIDGET_WIDTH}"'
+                ' height="45" kind="Observer" forever="true"'
+                ' disableUntilTicks="true" display="Go">go</button>'
+            )
+            y += 45 + _WIDGET_GAP
+        lines.append(
+            f'<monitor x="{_WIDGET_X}" y="{y}" width="{_WIDGET_WIDTH}"'
+            ' height="45" fontSize="11" precision="0"'
+            ' display="Time Steps">ticks</monitor>'
+        )
+    else:
+        for i, spec in enumerate(widgets):
+            lines.append(_widget_spec_to_xml(spec, i, y))
+            wtype = spec.get("type") if isinstance(spec, dict) else None
+            y += _WIDGET_HEIGHTS.get(wtype, 45) + _WIDGET_GAP  # type: ignore[arg-type]
+
+    return "\n    ".join(lines)
+
+
+def _wrap_nlogox(
+    procedures: str,
+    version: str = _NLOGOX_VERSION_FALLBACK,
+    widgets: list[dict[str, Any]] | None = None,
+) -> str:
     """Wrap raw NetLogo procedure code in a minimal .nlogox XML envelope.
 
     The ``version`` attribute is interpolated from the live workspace's
     ``netlogo-version`` when available so saved files don't lie about what
-    NetLogo they were authored against.
+    NetLogo they were authored against. ``widgets`` (optional) replaces the
+    default Setup/Go/ticks column with declaratively specified widgets.
     """
     # Escape XML special chars in the code and version for safe embedding
     import xml.sax.saxutils as saxutils
 
     escaped = saxutils.escape(procedures)
     version_attr = saxutils.quoteattr(version)
+    widgets_block = _render_widgets(procedures, widgets)
 
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <model version={version_attr} snapToGrid="false">
   <code>{escaped}</code>
   <widgets>
-    <view x="210" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="430" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="430" tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16" minPxcor="-16"></view>
-    <button x="10" y="10" width="190" height="45" kind="Observer" forever="false" disableUntilTicks="false" display="Setup">setup</button>
-    <button x="10" y="65" width="190" height="45" kind="Observer" forever="true" disableUntilTicks="true" display="Go">go</button>
-    <monitor x="10" y="130" width="190" height="45" fontSize="11" precision="0" display="Time Steps">ticks</monitor>
+    {widgets_block}
   </widgets>
   <info><![CDATA[## WHAT IS IT?
 
@@ -885,7 +1108,9 @@ async def list_models(ctx: Context) -> str:
 
 
 @mcp.tool()
-async def save_model(name: str, code: str, ctx: Context) -> str:
+async def save_model(
+    name: str, code: str, ctx: Context, widgets: list[dict[str, Any]] | None = None
+) -> str:
     """Save NetLogo model code to a .nlogox file in the models directory.
 
     This saves the model so you can open it in the NetLogo desktop app
@@ -895,6 +1120,9 @@ async def save_model(name: str, code: str, ctx: Context) -> str:
         name: Filename for the model (without extension).
         code: NetLogo model code (procedures only — envelope added automatically).
               Or provide a full .nlogox XML file.
+        widgets: Optional interface widgets — same schema as create_model
+            (slider/switch/button/monitor). Slider/switch widgets DEFINE
+            their variable; don't also declare it in `globals [...]`.
     """
     if ".." in name or "/" in name or "\\" in name:
         raise ToolError("Invalid model name (no path separators allowed).")
@@ -902,8 +1130,8 @@ async def save_model(name: str, code: str, ctx: Context) -> str:
     models_dir = get_models_dir()
 
     # Wrap in .nlogox envelope if raw procedures
-    if not code.strip().startswith("<?xml") and "<model" not in code[:200]:
-        code = _wrap_nlogox(code, _nlogox_version(ctx))
+    if not _validate_widgets_usage(code, widgets):
+        code = _wrap_nlogox(code, _nlogox_version(ctx), widgets=widgets)
 
     file_path = models_dir / f"{name}.nlogox"
     file_path.write_text(code, encoding="utf-8")
@@ -949,9 +1177,9 @@ async def close_model(ctx: Context) -> str:
     model. The next `open_model` / `create_model` call will reuse the same
     JVM (no 30-60s warmup).
     """
-    nl = _nl(ctx)
     if _current_model_path(ctx) is None:
         raise ToolError("No model is currently loaded.")
+    nl = _nl(ctx)
     try:
         # NetLogo doesn't expose an explicit "close model" primitive; the
         # closest stable equivalent is `clear-all`, which wipes turtles,
@@ -978,9 +1206,15 @@ async def server_info(ctx: Context) -> str:
     """
     from . import __version__
 
+    try:
+        jvm_started = _lifespan(ctx).get("netlogo") is not None
+    except ToolError:
+        jvm_started = False
+
     info: dict[str, Any] = {
         "server_version": __version__,
         "gui_mode": get_gui_mode(),
+        "jvm_started": jvm_started,
         "models_dir": str(get_models_dir()),
         "exports_dir": str(get_exports_dir()),
         "comses_cache_dir": str(get_comses_cache_dir()),
@@ -1422,7 +1656,7 @@ async def open_comses_model(
 
     # Load into the NetLogo workspace using the forward-slash path form that
     # pynetlogo expects on Windows.
-    nl = _nl(ctx)
+    nl = await _ensure_netlogo(ctx)
     path_str = str(outcome.selected_netlogo_file.resolve()).replace("\\", "/")
     try:
         await _jvm_call(ctx, nl.load_model, path_str)
