@@ -145,6 +145,30 @@ cd NetLogo-MCP
 pip install -e ".[dev]"
 ```
 
+### Docker
+
+The image bakes in NetLogo (headless) with its bundled JRE — no host install needed:
+
+```bash
+docker build -t netlogo-mcp .
+docker run -i --rm netlogo-mcp
+```
+
+MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "netlogo": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "netlogo-mcp"]
+    }
+  }
+}
+```
+
+Docker runs headless only (no GUI mode). Add `-v ./exports:/data/exports` to keep exported views and worlds on the host.
+
 ## Quick Start
 
 Once connected, try these prompts in any MCP client:

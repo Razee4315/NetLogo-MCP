@@ -1,0 +1,20 @@
+# Keep the build context to what the image actually needs.
+.git
+.github
+.env
+.env.example
+.mcp.json
+__pycache__
+**/__pycache__
+.mypy_cache
+.pytest_cache
+.ruff_cache
+dist
+assets
+design
+docs
+exports
+models
+tests
+Dockerfile
+.dockerignore
