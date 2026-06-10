@@ -15,6 +15,10 @@ The first MCP (Model Context Protocol) server for NetLogo — enabling AI assist
 
 **Works with:** Claude Code, Claude Desktop, Cursor, Windsurf, VS Code (Copilot), Cline, Continue, Roo Code, Zed, OpenCode, Codex — any tool that supports MCP.
 
+<p align="center">
+  <img src="assets/demo.gif" alt="NetLogo MCP demo — AI creating and running a simulation through conversation" width="800">
+</p>
+
 ## Why NetLogo MCP?
 
 As an AI student taking an Agent-Based Modeling course, I searched for an MCP server to control NetLogo — nothing existed. So I built one.
@@ -27,10 +31,6 @@ The AI writes the code, runs the simulation, and shows you the results — all t
 
 <p align="center">
   <img src="assets/architecture.png" alt="You → AI Assistant → NetLogo MCP Server → NetLogo (GUI or headless JVM)" width="800">
-</p>
-
-<p align="center">
-  <img src="assets/demo.gif" alt="NetLogo MCP demo — AI creating and running a simulation through conversation" width="800">
 </p>
 
 By default a real NetLogo window opens (on first use) so you can watch your simulations run live. Headless mode is available for CI or servers.
