@@ -29,6 +29,10 @@ The AI writes the code, runs the simulation, and shows you the results — all t
   <img src="assets/architecture.png" alt="You → AI Assistant → NetLogo MCP Server → NetLogo (GUI or headless JVM)" width="800">
 </p>
 
+<p align="center">
+  <img src="assets/demo.gif" alt="NetLogo MCP demo — AI creating and running a simulation through conversation" width="800">
+</p>
+
 By default a real NetLogo window opens (on first use) so you can watch your simulations run live. Headless mode is available for CI or servers.
 
 ## Features
