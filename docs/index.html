@@ -149,11 +149,13 @@
     .nav-links a { color: var(--text2); text-decoration: none; font-size: 14px; font-weight: 500; padding: 8px 13px; border-radius: 10px; }
     @media (prefers-reduced-motion: no-preference) { .nav-links a { transition: color .15s ease, background .15s ease; } }
     .nav-links a:not(.nav-dl):hover { color: var(--ink); background: var(--bg2); }
-    .nav-dl { background: var(--accent); color: #04120c !important; font-weight: 700; padding: 9px 17px !important; }
+    .nav-dl { background: var(--accent); color: #04120c !important; font-weight: 700; padding: 9px 17px !important; white-space: nowrap; flex: 0 0 auto; }
     @media (prefers-reduced-motion: no-preference) { .nav-dl { transition: background .15s ease; } }
     .nav-dl:hover { background: var(--accent-deep); }
     @media (max-width: 680px) { .nav-hide-mobile { display: none; } }
-    .theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; margin: 0 8px 0 4px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text2); cursor: pointer; }
+    @media (max-width: 430px) { .brand-name { display: none; } .nav-inner { gap: 8px; } }
+    .brand { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+    .theme-toggle { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; margin: 0 8px 0 4px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text2); cursor: pointer; }
     @media (prefers-reduced-motion: no-preference) { .theme-toggle { transition: color .15s, border-color .15s; } }
     .theme-toggle:hover { color: var(--accent2); border-color: var(--accent2); }
     .theme-toggle svg { width: 18px; height: 18px; }
@@ -319,7 +321,7 @@
 
   <nav aria-label="Primary">
     <div class="nav-inner">
-      <a class="brand" href="#top"><img src="assets/logo-mark.png" alt="NetLogo MCP logo" width="28" height="28" />NetLogo&nbsp;MCP</a>
+      <a class="brand" href="#top"><img src="assets/logo-mark.png" alt="NetLogo MCP logo" width="28" height="28" /><span class="brand-name">NetLogo&nbsp;MCP</span></a>
       <div class="nav-links">
         <a class="nav-hide-mobile" href="#features">Features</a>
         <a class="nav-hide-mobile" href="#start">Setup</a>
@@ -800,8 +802,9 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
     function init() {
       resize();
       agents = []; leaders = [];
-      // followers per cluster scales a little with width
-      var followers = Math.round(Math.min(26, Math.max(9, W / 58)));
+      // far fewer turtles on small screens, where a big flock looks cramped
+      CLUSTERS = W < 600 ? 5 : (W < 1000 ? 10 : 15);
+      var followers = W < 600 ? 3 : (W < 1000 ? 7 : Math.round(Math.min(26, Math.max(14, W / 58))));
       var y0 = window.scrollY || 0;  // start the flock in the first screen (the hero)
       for (var c = 0; c < CLUSTERS; c++) {
         clusterKinds[c] = KINDS[c % KINDS.length];
