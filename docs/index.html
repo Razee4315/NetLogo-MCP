@@ -735,13 +735,15 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
     var ctx = canvas.getContext('2d');
     var dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
     var W = 0, H = 0, docH = 0, raf = 0;
-    var agents = [], leaders = [];
+    var agents = [], leaders = [], clusterKinds = [];
     var mouse = { x: 0, y: 0, active: false };
 
     var CLUSTERS = 15;
-    var CAP = 280;
-    var SEP2 = 18 * 18;
+    var CAP = 520;
+    var SEP2 = 26 * 26;
     var MAXV = 1.35, MINV = 0.4;
+    // each cluster moves with its own personality
+    var KINDS = ['flock', 'flock', 'flock', 'flock', 'flock', 'line', 'line', 'line', 'bees', 'bees', 'bees', 'orbit', 'orbit', 'orbit', 'flock'];
 
     // a unique colour per cluster, spread evenly around the hue wheel
     function hslToRgb(h, s, l) {
@@ -776,7 +778,7 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
         vx: vx == null ? Math.cos(a) * s : vx,
         vy: vy == null ? Math.sin(a) * s : vy,
         cl: cl, leader: !!leader,
-        size: leader ? (7.2 + Math.random() * 1.6) : (3.6 + Math.random() * 1.9)
+        size: leader ? (6.5 + Math.random() * 4.5) : (2.6 + Math.random() * 4.4)
       };
     }
 
@@ -799,15 +801,20 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
       resize();
       agents = []; leaders = [];
       // followers per cluster scales a little with width
-      var followers = Math.round(Math.min(8, Math.max(4, W / 200)));
+      var followers = Math.round(Math.min(26, Math.max(9, W / 58)));
       var y0 = window.scrollY || 0;  // start the flock in the first screen (the hero)
       for (var c = 0; c < CLUSTERS; c++) {
+        clusterKinds[c] = KINDS[c % KINDS.length];
         var lx = (c + 0.5) / CLUSTERS * W + (Math.random() - 0.5) * 70;
         var ly = y0 + 70 + Math.random() * (H - 150);
         var L = makeAgent(lx, ly, c, true);
         leaders.push(L); agents.push(L);
+        var prev = L;
         for (var f = 0; f < followers; f++) {
-          agents.push(makeAgent(lx + (Math.random() - 0.5) * 80, ly + (Math.random() - 0.5) * 80, c, false));
+          var ag = makeAgent(lx + (Math.random() - 0.5) * 90, ly + (Math.random() - 0.5) * 90, c, false);
+          ag.prev = prev;  // the "line" behaviour trails one turtle behind another
+          prev = ag;
+          agents.push(ag);
         }
       }
     }
@@ -830,29 +837,65 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
         }
       }
 
+      // spatial grid so separation stays cheap no matter how many turtles
+      var CELL = 28, grid = {};
+      for (i = 0; i < n; i++) {
+        var key0 = ((agents[i].x / CELL) | 0) + ',' + ((agents[i].y / CELL) | 0);
+        (grid[key0] || (grid[key0] = [])).push(i);
+      }
+
       for (i = 0; i < n; i++) {
         var a = agents[i];
 
+        var kind = clusterKinds[a.cl];
         if (!a.leader) {
-          // followers chase their own leader and match its heading
           var Ld = leaders[a.cl];
-          var dx = Ld.x - a.x, dy = Ld.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
-          a.vx += (dx / d) * 0.05;
-          a.vy += (dy / d) * 0.05;
-          a.vx += (Ld.vx - a.vx) * 0.03;
-          a.vy += (Ld.vy - a.vy) * 0.03;
-          a.vx += (Math.random() - 0.5) * 0.04;
-          a.vy += (Math.random() - 0.5) * 0.04;
+          if (kind === 'line') {
+            // trail the turtle in front, holding a gap (ant line)
+            var t = a.prev || Ld;
+            var dx = t.x - a.x, dy = t.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+            var pull = (d - 18) * 0.02;
+            a.vx += (dx / d) * pull; a.vy += (dy / d) * pull;
+            a.vx += (t.vx - a.vx) * 0.06; a.vy += (t.vy - a.vy) * 0.06;
+          } else if (kind === 'bees') {
+            // buzz erratically around the leader
+            var dx = Ld.x - a.x, dy = Ld.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+            a.vx += (dx / d) * 0.10; a.vy += (dy / d) * 0.10;
+            a.vx += (Math.random() - 0.5) * 0.24; a.vy += (Math.random() - 0.5) * 0.24;
+          } else if (kind === 'orbit') {
+            // circle the leader like pollinators around a flower
+            var rx = a.x - Ld.x, ry = a.y - Ld.y, rd = Math.sqrt(rx * rx + ry * ry) || 1;
+            var radial = (62 - rd) * 0.004;
+            a.vx += (rx / rd) * radial; a.vy += (ry / rd) * radial;
+            a.vx += (-ry / rd) * 0.07; a.vy += (rx / rd) * 0.07;
+          } else {
+            // loose flock around the leader
+            var dx = Ld.x - a.x, dy = Ld.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+            a.vx += (dx / d) * 0.04; a.vy += (dy / d) * 0.04;
+            a.vx += (Ld.vx - a.vx) * 0.03; a.vy += (Ld.vy - a.vy) * 0.03;
+          }
+          a.vx += (Math.random() - 0.5) * 0.03;
+          a.vy += (Math.random() - 0.5) * 0.03;
         }
 
-        // separation: don't pile up
-        var sx = 0, sy = 0, sc = 0;
-        for (j = 0; j < n; j++) {
-          if (j === i) continue;
-          var bx = a.x - agents[j].x, by = a.y - agents[j].y, b2 = bx * bx + by * by;
-          if (b2 < SEP2 && b2 > 0.001) { sx += bx / b2; sy += by / b2; sc++; }
+        // separation: keep clear space between turtles (ant-lines skip this so they can chain)
+        if (kind !== 'line') {
+          var sx = 0, sy = 0, sc = 0;
+          var gx = (a.x / CELL) | 0, gy = (a.y / CELL) | 0;
+          for (var ox = -1; ox <= 1; ox++) {
+            for (var oy = -1; oy <= 1; oy++) {
+              var bucket = grid[(gx + ox) + ',' + (gy + oy)];
+              if (!bucket) continue;
+              for (var bi = 0; bi < bucket.length; bi++) {
+                var k = bucket[bi];
+                if (k === i) continue;
+                var bx = a.x - agents[k].x, by = a.y - agents[k].y, b2 = bx * bx + by * by;
+                if (b2 < SEP2 && b2 > 0.001) { sx += bx / b2; sy += by / b2; sc++; }
+              }
+            }
+          }
+          if (sc > 0) { var sl = Math.sqrt(sx * sx + sy * sy) || 1; a.vx += (sx / sl) * 0.11; a.vy += (sy / sl) * 0.11; }
         }
-        if (sc > 0) { var sl = Math.sqrt(sx * sx + sy * sy) || 1; a.vx += (sx / sl) * 0.08; a.vy += (sy / sl) * 0.08; }
 
         // stay within the screen you're on; when you scroll, ease back in slowly
         if (a.y < scrollY + 40) a.vy += (scrollY + 40 - a.y) * 0.0016;
@@ -864,8 +907,9 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
           if (m2 < 150 * 150 && m2 > 1) { var mm = Math.sqrt(m2); a.vx += (mdx / mm) * 0.02; a.vy += (mdy / mm) * 0.02; }
         }
 
+        var mx = (kind === 'bees') ? 1.95 : MAXV;
         var sp = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
-        if (sp > MAXV) { a.vx = a.vx / sp * MAXV; a.vy = a.vy / sp * MAXV; }
+        if (sp > mx) { a.vx = a.vx / sp * mx; a.vy = a.vy / sp * mx; }
         else if (sp < MINV && sp > 0.0001) { a.vx = a.vx / sp * MINV; a.vy = a.vy / sp * MINV; }
         a.x += a.vx; a.y += a.vy;
 
@@ -910,12 +954,14 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
       if (agents.length >= CAP) return;
       if (e.target && e.target.closest && e.target.closest('a, button, summary, input, label, .tab, details')) return;
       var px = e.clientX, py = e.clientY + (window.scrollY || window.pageYOffset || 0);
-      var nearCl = 0, best = Infinity;
+      var nearCl = 0, nearA = null, best = Infinity;
       for (var i = 0; i < agents.length; i++) {
         var dx = agents[i].x - px, dy = agents[i].y - py, d2 = dx * dx + dy * dy;
-        if (d2 < best) { best = d2; nearCl = agents[i].cl; }
+        if (d2 < best) { best = d2; nearCl = agents[i].cl; nearA = agents[i]; }
       }
-      agents.push(makeAgent(px, py, nearCl, false));
+      var na = makeAgent(px, py, nearCl, false);
+      na.prev = nearA || leaders[nearCl];
+      agents.push(na);
     });
 
     var rt;
