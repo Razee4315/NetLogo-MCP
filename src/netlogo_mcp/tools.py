@@ -122,7 +122,13 @@ def _current_model_path(ctx: Context) -> str | None:
         return None
 
 
-_NLOGOX_VERSION_FALLBACK = "NetLogo 7.0.3"
+# Floor of the NetLogo 7.0.x series. Used only when the live workspace version
+# can't be detected. Must stay the LOWEST supported 7.0 patch: NetLogo warns
+# when opening a model created in a *newer* version than the one installed, so a
+# file stamped with the floor opens cleanly on any 7.0.x. Stamping a specific
+# newer patch (e.g. 7.0.3) makes 7.0.0 users get a spurious "newer version"
+# dialog on every open. See issue #20.
+_NLOGOX_VERSION_FALLBACK = "NetLogo 7.0.0"
 
 
 _T = TypeVar("_T")
