@@ -1,0 +1,42 @@
+# NetLogo MCP
+
+> NetLogo MCP is the first Model Context Protocol (MCP) server for NetLogo. It lets AI assistants (Claude, Cursor, VS Code Copilot, and any MCP client) create, run, and analyze agent-based models through natural conversation. Free and open source under the MIT license.
+
+## Key facts
+
+- What it is: an MCP server that connects AI assistants to NetLogo
+- First of its kind: the first MCP server built for NetLogo
+- Install: `pip install netlogo-mcp` (Python 3.10+)
+- Requirements: NetLogo 7.0+ and a Java JDK 11+ (or use the Docker image, which bundles headless NetLogo)
+- Tools: 25 total — 17 NetLogo control, 5 CoMSES library, 3 BehaviorSpace
+- License: MIT (free and open source)
+- Platforms: Windows, macOS, Linux
+- Author: Saqlain Abbas (https://github.com/Razee4315)
+
+## What you can do with it
+
+- Create NetLogo models from a chat description, with real interface widgets (sliders, switches, buttons, monitors)
+- Run simulations and get tick-by-tick data back as markdown tables
+- Run BehaviorSpace parameter sweeps via NetLogo's headless launcher
+- Export the NetLogo view as a PNG that appears inline in chat
+- Inspect world state, agent samples, and patch grids
+- Search and safely run peer-reviewed models from the CoMSES Net library
+- Watch simulations run in a real NetLogo window, or run fully headless
+
+## Works with these AI clients
+
+Claude Code, Claude Desktop, Cursor, Windsurf, VS Code (Copilot), Cline, Continue, Roo Code, Zed, OpenCode, Codex — any tool that supports MCP.
+
+## How to get started
+
+1. Install: `pip install netlogo-mcp`
+2. Add a `netlogo` server entry to your MCP client config with `command: netlogo-mcp` and `env.NETLOGO_HOME` / `env.JAVA_HOME` set to your installs.
+3. Ask your AI assistant to build and run a model, e.g. "Create a predator-prey model with 100 sheep and 20 wolves, run it for 500 ticks, and show me the population dynamics."
+
+## Links
+
+- Website: https://razee4315.github.io/NetLogo-MCP/
+- Source code: https://github.com/Razee4315/NetLogo-MCP
+- Install (PyPI): https://pypi.org/project/netlogo-mcp/
+- Docs: https://github.com/Razee4315/NetLogo-MCP/tree/main/docs
+- Author: Saqlain Abbas (https://github.com/Razee4315)
