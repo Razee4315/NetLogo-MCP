@@ -153,7 +153,7 @@
     @media (max-width: 620px) { nav { padding: 10px 0; } .nav-inner { margin: 0 16px; } }
     .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; color: var(--ink); text-decoration: none; letter-spacing: -0.3px; font-size: 16.5px; }
     .brand img { width: 28px; height: 28px; border-radius: 7px; }
-    .nav-links { display: flex; gap: 2px; margin-left: auto; align-items: center; }
+    .nav-links { display: flex; gap: 4px; margin-left: auto; align-items: center; }
     .nav-links a { color: var(--text2); text-decoration: none; font-size: 14px; font-weight: 500; padding: 8px 13px; border-radius: 10px; }
     @media (prefers-reduced-motion: no-preference) { .nav-links a { transition: color .15s ease, background .15s ease; } }
     .nav-links a:not(.nav-dl):hover { color: var(--ink); background: var(--bg2); }
@@ -161,7 +161,7 @@
     @media (prefers-reduced-motion: no-preference) { .nav-dl { transition: filter .15s ease, transform .15s ease, box-shadow .15s ease; } }
     .nav-dl:hover { filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16,185,129,0.5); }
     @media (max-width: 680px) { .nav-hide-mobile { display: none; } }
-    .theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text2); cursor: pointer; }
+    .theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; margin: 0 8px 0 4px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text2); cursor: pointer; }
     @media (prefers-reduced-motion: no-preference) { .theme-toggle { transition: color .15s, border-color .15s; } }
     .theme-toggle:hover { color: var(--accent2); border-color: var(--accent2); }
     .theme-toggle svg { width: 18px; height: 18px; }
@@ -183,7 +183,10 @@
 
     /* ---- hero ---- */
     header.hero { position: relative; padding: 56px 0 22px; text-align: center; }
-    .hero-copy { max-width: 720px; margin: 0 auto; }
+    #agents-canvas { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 100vw; height: 100%; z-index: 0; pointer-events: none; }
+    .hero-copy { position: relative; z-index: 1; max-width: 720px; margin: 0 auto; }
+    .hero-hint { font-size: 12px; color: var(--muted); margin-top: 14px; opacity: .85; }
+    .hero-hint svg { width: 13px; height: 13px; vertical-align: -2px; margin-right: 3px; }
     h1 { font-size: clamp(38px, 6vw, 64px); line-height: 1.04; margin: 22px 0 18px; letter-spacing: -2.2px; font-weight: 800; color: var(--ink); }
     h1 .grad { background: linear-gradient(110deg, var(--accent2) 10%, var(--teal) 92%); -webkit-background-clip: text; background-clip: text; color: transparent; }
     .sub { font-size: clamp(16.5px, 2.1vw, 19.5px); color: var(--text2); max-width: 588px; margin: 0 auto 28px; line-height: 1.55; }
@@ -236,6 +239,26 @@
     .step h3 { font-size: 16.5px; color: var(--ink); margin: 0 0 6px; font-weight: 700; }
     .step p { color: var(--text2); font-size: 14.5px; margin: 0; line-height: 1.55; }
     .step code { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 1px 7px; font-size: 13px; color: var(--accent2); }
+
+    /* ---- zero-config card ---- */
+    .zero { max-width: 760px; margin: 0 auto; background: var(--card); border: 1px solid var(--accent-wash2); border-radius: 20px; padding: 30px 30px 26px; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+    .zero::before { content: ""; position: absolute; inset: -45% 45% auto -12%; height: 250px; background: radial-gradient(ellipse 50% 60% at 30% 20%, var(--accent-wash), transparent 70%); pointer-events: none; }
+    .zero > * { position: relative; z-index: 1; }
+    .zero-h { font-size: 22px; color: var(--ink); margin: 14px 0 8px; font-weight: 800; letter-spacing: -0.6px; }
+    .zero-p { color: var(--text2); font-size: 15.5px; line-height: 1.6; margin: 0 0 20px; max-width: 620px; }
+    .zero-p strong { color: var(--text); font-weight: 600; }
+    .zero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+    .zero-hint { font-size: 13px; color: var(--muted); }
+    .zero-hint a { color: var(--accent2); }
+    .zero-details { margin-top: 22px; border-top: 1px solid var(--hairline); }
+    .zero-details summary { cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--text2); padding: 14px 0 4px; list-style: none; }
+    .zero-details summary::-webkit-details-marker { display: none; }
+    .zero-details summary::before { content: "\25B8\00a0"; color: var(--accent2); }
+    .zero-details[open] summary::before { content: "\25BE\00a0"; }
+    .zero-details pre { margin: 8px 0 4px; padding: 16px 18px; background: #050a09; border: 1px solid var(--border); border-radius: 12px; max-height: 320px; overflow: auto; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.65; color: #c9ddd5; white-space: pre-wrap; }
+    .manual-head { text-align: center; font-size: 14.5px; color: var(--muted); font-weight: 600; margin: 38px 0 24px; position: relative; }
+    .manual-head span { background: var(--bg); padding: 0 16px; position: relative; z-index: 1; }
+    .manual-head::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--hairline); }
 
     /* ---- config tabs ---- */
     .tabs { max-width: 720px; margin: 0 auto; }
@@ -329,6 +352,7 @@
   <div class="wrap" id="top">
 
     <header class="hero">
+      <canvas id="agents-canvas" aria-hidden="true"></canvas>
       <div class="hero-copy">
         <span class="eyebrow"><span class="dot"></span>The first MCP server for NetLogo</span>
         <h1>Talk to NetLogo.<br /><span class="grad">Your AI runs the simulation.</span></h1>
@@ -349,6 +373,7 @@
           <a class="btn btn-ghost" href="#start">Set it up</a>
         </div>
         <p class="meta-line"><strong>Free and open source</strong> · MIT · 25 tools · NetLogo 7 · Python 3.10+</p>
+        <p class="hero-hint"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l4 14 2-6 6-2z"/></svg>Move your mouse through the swarm, click to spawn more agents.</p>
       </div>
     </header>
 
@@ -408,8 +433,63 @@
 
     <section id="start" aria-label="Set up NetLogo MCP">
       <div class="sec-head reveal">
-        <h2>Set up NetLogo MCP in three steps</h2>
+        <h2>Set up NetLogo MCP</h2>
+        <p>The only thing you install by hand is NetLogo. Let your AI do the rest.</p>
       </div>
+
+      <div class="zero reveal">
+        <span class="eyebrow"><span class="dot"></span>Recommended · the easy way</span>
+        <h3 class="zero-h">Let your AI assistant install it for you</h3>
+        <p class="zero-p">First install <strong>NetLogo 7+</strong> yourself, that is the only manual step. Then paste the prompt below into your AI coding tool (Claude, Cursor, VS&nbsp;Code, and the rest). It detects your system, installs the server with pip, wires up your client's MCP config, and hands you a test prompt to try. No JSON editing on your part.</p>
+        <div class="zero-actions">
+          <button class="btn btn-primary" id="copy-prompt" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span class="cp-label">Copy the setup prompt</span>
+          </button>
+          <span class="zero-hint">Need NetLogo? <a href="https://ccl.northwestern.edu/netlogo/download.shtml">Download it here</a> first.</span>
+        </div>
+        <details class="zero-details">
+          <summary>See what the prompt says</summary>
+<pre id="setup-prompt">Please set up the NetLogo MCP server for me end-to-end. Follow these steps carefully:
+
+1. Detect my environment
+   - Identify my OS (Windows / macOS / Linux).
+   - Check Python version (need 3.10+). If missing, tell me to install it first and stop.
+   - Check for Java JDK 11+ (not JRE). Look in common locations (JAVA_HOME, standard install dirs). If missing, tell me to install Adoptium Temurin JDK 11+ and stop.
+   - Check for NetLogo 7.0+. Look in common locations:
+     - Windows: C:/Program Files/NetLogo*
+     - macOS: /Applications/NetLogo*
+     - Linux: /opt/netlogo*, ~/netlogo*
+     If NetLogo isn't installed, tell me to download it from https://ccl.northwestern.edu/netlogo/download.shtml and stop.
+
+2. Install
+   - Run: pip install netlogo-mcp
+   - Verify the netlogo-mcp command is now available on my PATH.
+
+3. Identify my MCP client
+   - Figure out which AI tool I'm using (Claude Code, Cursor, Windsurf, Cline, Continue, Roo Code, Zed, OpenCode, VS Code Copilot, Codex, or Claude Desktop).
+   - If you're not sure, ask me.
+
+4. Configure the MCP client
+   - Locate (or create) the correct config file for my client (see https://github.com/Razee4315/NetLogo-MCP/blob/main/docs/CLIENTS.md for exact paths and schemas per client).
+   - Add a netlogo server entry with command netlogo-mcp, env.NETLOGO_HOME set to my NetLogo path, and env.JAVA_HOME set to my JDK path.
+   - Use the exact JSON schema for my specific client (for example "type": "stdio" for Cursor, the "servers" key for VS Code).
+   - Preserve any existing config entries: merge, don't overwrite.
+   - Configure it for THIS project only (project-scope config), not globally, unless I say otherwise.
+
+5. Tell me what to do next
+   - Tell me to fully restart my AI tool so the new MCP server loads.
+   - Tell me the NetLogo window opens on the FIRST model tool call, and that call takes 30 to 60 seconds while the Java Virtual Machine starts. Tell me NOT to click stop during this wait.
+   - Give me this test prompt to try after restart:
+     "Create a simple predator-prey model with wolves and sheep on a green landscape. Run setup, then run 100 ticks while tracking wolf and sheep counts. Export the view before and after so I can see how the world evolved."
+   - Tell me where models and exports are saved (the working directory's models/ and exports/ folders) and that I can browse them with the list_models tool.
+
+Do not skip any verification step. If something fails, stop and tell me exactly what failed and how to fix it.</pre>
+        </details>
+      </div>
+
+      <p class="manual-head reveal"><span>Or configure it manually</span></p>
+
       <div class="steps reveal" style="margin-bottom: 30px;">
         <div class="step">
           <div class="num">1</div>
@@ -633,6 +713,20 @@
       });
     }
 
+    // Copy the zero-config setup prompt
+    var cp = document.getElementById('copy-prompt');
+    var promptEl = document.getElementById('setup-prompt');
+    if (cp && promptEl && navigator.clipboard) {
+      cp.addEventListener('click', function () {
+        navigator.clipboard.writeText(promptEl.textContent.trim()).then(function () {
+          var label = cp.querySelector('.cp-label');
+          var prev = label.textContent;
+          label.textContent = 'Copied to clipboard';
+          setTimeout(function () { label.textContent = prev; }, 1800);
+        });
+      });
+    }
+
     // Scroll reveal
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if ('IntersectionObserver' in window && !reduce) {
@@ -645,6 +739,133 @@
     } else {
       document.querySelectorAll('.reveal').forEach(function (el) { el.classList.add('in'); });
     }
+  })();
+
+  // ---- Hero agent field: a tiny agent-based swarm that reacts to the mouse ----
+  (function () {
+    "use strict";
+    var canvas = document.getElementById('agents-canvas');
+    if (!canvas || !canvas.getContext) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    var hero = canvas.parentElement;
+    var ctx = canvas.getContext('2d');
+    var dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    var W = 0, H = 0, raf = 0;
+    var agents = [];
+    var mouse = { x: -9999, y: -9999, active: false };
+    var LINK = 124, MAXV = 1.15, CAP = 110;
+
+    function palette() {
+      var light = document.documentElement.getAttribute('data-theme') === 'light';
+      return light ? { dot: '5,150,105', line: '13,148,136' } : { dot: '52,211,153', line: '45,212,191' };
+    }
+
+    function spawn(x, y, scatter) {
+      var a = Math.random() * Math.PI * 2;
+      var s = 0.3 + Math.random() * 0.55;
+      if (scatter) s = 1 + Math.random() * 1.6;
+      return {
+        x: x == null ? Math.random() * W : x,
+        y: y == null ? Math.random() * H : y,
+        vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+        r: 1.4 + Math.random() * 1.9
+      };
+    }
+
+    function resize() {
+      W = Math.max(1, window.innerWidth);
+      H = Math.max(1, hero.offsetHeight);
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      canvas.style.width = W + 'px';
+      canvas.style.height = H + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function init() {
+      resize();
+      agents = [];
+      var n = Math.round(Math.min(58, Math.max(26, W / 28)));
+      for (var i = 0; i < n; i++) agents.push(spawn());
+    }
+
+    function frame() {
+      var c = palette();
+      ctx.clearRect(0, 0, W, H);
+
+      // links between nearby agents (the "network" of a complex system)
+      for (var i = 0; i < agents.length; i++) {
+        for (var j = i + 1; j < agents.length; j++) {
+          var dx = agents[i].x - agents[j].x, dy = agents[i].y - agents[j].y;
+          var d2 = dx * dx + dy * dy;
+          if (d2 < LINK * LINK) {
+            var al = (1 - Math.sqrt(d2) / LINK) * 0.16;
+            ctx.strokeStyle = 'rgba(' + c.line + ',' + al + ')';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(agents[i].x, agents[i].y);
+            ctx.lineTo(agents[j].x, agents[j].y);
+            ctx.stroke();
+          }
+        }
+      }
+
+      for (var k = 0; k < agents.length; k++) {
+        var ag = agents[k];
+        ag.vx += (Math.random() - 0.5) * 0.05;
+        ag.vy += (Math.random() - 0.5) * 0.05;
+        if (mouse.active) {
+          var mdx = mouse.x - ag.x, mdy = mouse.y - ag.y;
+          var md2 = mdx * mdx + mdy * mdy;
+          if (md2 < 170 * 170 && md2 > 1) {
+            var md = Math.sqrt(md2);
+            var f = (1 - md / 170) * 0.09;
+            ag.vx += (mdx / md) * f;
+            ag.vy += (mdy / md) * f;
+          }
+        }
+        var sp = Math.sqrt(ag.vx * ag.vx + ag.vy * ag.vy);
+        if (sp > MAXV) { ag.vx = ag.vx / sp * MAXV; ag.vy = ag.vy / sp * MAXV; }
+        ag.x += ag.vx; ag.y += ag.vy;
+        if (ag.x < -12) ag.x = W + 12; else if (ag.x > W + 12) ag.x = -12;
+        if (ag.y < -12) ag.y = H + 12; else if (ag.y > H + 12) ag.y = -12;
+        ctx.fillStyle = 'rgba(' + c.dot + ',0.82)';
+        ctx.beginPath();
+        ctx.arc(ag.x, ag.y, ag.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      raf = requestAnimationFrame(frame);
+    }
+
+    function within(e) {
+      var rect = canvas.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top, inside: e.clientY >= rect.top && e.clientY <= rect.bottom };
+    }
+
+    window.addEventListener('mousemove', function (e) {
+      var p = within(e);
+      if (p.inside) { mouse.x = p.x; mouse.y = p.y; mouse.active = true; }
+      else { mouse.active = false; }
+    }, { passive: true });
+    window.addEventListener('mouseout', function () { mouse.active = false; });
+    window.addEventListener('click', function (e) {
+      var p = within(e);
+      if (!p.inside) return;
+      for (var i = 0; i < 5 && agents.length < CAP; i++) agents.push(spawn(p.x, p.y, true));
+    });
+    var rt;
+    window.addEventListener('resize', function () {
+      clearTimeout(rt);
+      rt = setTimeout(function () { cancelAnimationFrame(raf); init(); frame(); }, 150);
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) { cancelAnimationFrame(raf); }
+      else { cancelAnimationFrame(raf); frame(); }
+    });
+
+    init();
+    frame();
   })();
   </script>
 </body>
