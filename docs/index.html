@@ -115,15 +115,15 @@
       color-scheme: dark;
     }
     :root[data-theme="light"] {
-      --bg: #f4f8f6; --bg2: #e9f1ed; --card: #ffffff; --card2: #f1f6f3;
-      --ink: #0b1a15; --text: #1d2c27; --text2: #4f615b; --muted: #76877f;
-      --accent: #059669; --accent2: #0a9c6a; --accent-deep: #047857; --teal: #0d9488;
-      --border: rgba(8,28,22,0.11); --hairline: rgba(8,28,22,0.07);
-      --accent-wash: rgba(5,150,105,0.10); --accent-wash2: rgba(5,150,105,0.22);
-      --ring: rgba(5,150,105,0.45);
+      --bg: #eae8e2; --bg2: #e1dfd8; --card: #f5f4ef; --card2: #ece9e2;
+      --ink: #1a211d; --text: #323b35; --text2: #5a645d; --muted: #879089;
+      --accent: #058a61; --accent2: #0a8f62; --accent-deep: #046b4a; --teal: #0d8c80;
+      --border: rgba(22,30,25,0.13); --hairline: rgba(22,30,25,0.08);
+      --accent-wash: rgba(5,138,97,0.10); --accent-wash2: rgba(5,138,97,0.22);
+      --ring: rgba(5,138,97,0.45);
       --shadow: none;
       --shadow-lg: none;
-      --key: #e9f1ed; --key-edge: rgba(8,28,22,0.16);
+      --key: #e5e3db; --key-edge: rgba(22,30,25,0.16);
       color-scheme: light;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -738,17 +738,34 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
     var agents = [], leaders = [];
     var mouse = { x: 0, y: 0, active: false };
 
-    var CLUSTERS = 5;
-    var CAP = 170;
-    var SEP2 = 20 * 20;
-    var MAXV = 1.6, MINV = 0.55;
+    var CLUSTERS = 15;
+    var CAP = 280;
+    var SEP2 = 18 * 18;
+    var MAXV = 1.35, MINV = 0.4;
 
-    // one distinct colour per cluster (leaders bright, followers faded)
+    // a unique colour per cluster, spread evenly around the hue wheel
+    function hslToRgb(h, s, l) {
+      var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      var p = 2 * l - q;
+      function f(t) {
+        if (t < 0) t += 1; if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+      }
+      return Math.round(f(h + 1 / 3) * 255) + ',' + Math.round(f(h) * 255) + ',' + Math.round(f(h - 1 / 3) * 255);
+    }
+    var _cols = null, _colsTheme = null;
     function colours() {
-      var light = document.documentElement.getAttribute('data-theme') === 'light';
-      return light
-        ? ['5,150,105', '217,119,6', '2,132,199', '101,163,13', '13,148,136']
-        : ['52,211,153', '245,158,11', '56,189,248', '163,230,53', '45,212,191'];
+      var t = document.documentElement.getAttribute('data-theme');
+      if (t === _colsTheme && _cols) return _cols;
+      _colsTheme = t;
+      var light = t === 'light';
+      var s = light ? 0.58 : 0.66, l = light ? 0.42 : 0.62;
+      _cols = [];
+      for (var i = 0; i < CLUSTERS; i++) _cols.push(hslToRgb(i / CLUSTERS, s, l));
+      return _cols;
     }
 
     function makeAgent(x, y, cl, leader, vx, vy) {
@@ -759,7 +776,7 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
         vx: vx == null ? Math.cos(a) * s : vx,
         vy: vy == null ? Math.sin(a) * s : vy,
         cl: cl, leader: !!leader,
-        size: leader ? (7.6 + Math.random() * 1.8) : (4.2 + Math.random() * 2.3)
+        size: leader ? (7.2 + Math.random() * 1.6) : (3.6 + Math.random() * 1.9)
       };
     }
 
@@ -782,7 +799,7 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
       resize();
       agents = []; leaders = [];
       // followers per cluster scales a little with width
-      var followers = Math.round(Math.min(15, Math.max(8, W / 95)));
+      var followers = Math.round(Math.min(8, Math.max(4, W / 200)));
       var y0 = window.scrollY || 0;  // start the flock in the first screen (the hero)
       for (var c = 0; c < CLUSTERS; c++) {
         var lx = (c + 0.5) / CLUSTERS * W + (Math.random() - 0.5) * 70;
@@ -809,7 +826,7 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
         for (j = 0; j < leaders.length; j++) {
           if (j === i) continue;
           var lx2 = L.x - leaders[j].x, ly2 = L.y - leaders[j].y, ld2 = lx2 * lx2 + ly2 * ly2;
-          if (ld2 < 190 * 190 && ld2 > 1) { var ld = Math.sqrt(ld2); L.vx += (lx2 / ld) * 0.05; L.vy += (ly2 / ld) * 0.05; }
+          if (ld2 < 135 * 135 && ld2 > 1) { var ld = Math.sqrt(ld2); L.vx += (lx2 / ld) * 0.04; L.vy += (ly2 / ld) * 0.04; }
         }
       }
 
@@ -837,9 +854,9 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
         }
         if (sc > 0) { var sl = Math.sqrt(sx * sx + sy * sy) || 1; a.vx += (sx / sl) * 0.08; a.vy += (sy / sl) * 0.08; }
 
-        // travel with the page: if a turtle falls outside the current screen, ease it back
-        if (a.y < scrollY + 18) a.vy += 0.05;
-        else if (a.y > scrollY + H - 18) a.vy -= 0.05;
+        // stay within the screen you're on; when you scroll, ease back in slowly
+        if (a.y < scrollY + 40) a.vy += (scrollY + 40 - a.y) * 0.0016;
+        else if (a.y > scrollY + H - 40) a.vy -= (a.y - (scrollY + H - 40)) * 0.0016;
 
         // gentle, small pull toward the cursor
         if (mouse.active) {
@@ -873,7 +890,7 @@ Do not skip any verification step. If something fails, stop and tell me exactly 
         ctx.lineTo(-s * 0.38, 0);
         ctx.lineTo(-s * 0.85, -s * 0.72);
         ctx.closePath();
-        ctx.fillStyle = 'rgba(' + col + ',' + (a.leader ? 0.92 : 0.5) + ')';
+        ctx.fillStyle = 'rgba(' + col + ',' + (a.leader ? 0.9 : 0.42) + ')';
         ctx.fill();
         ctx.restore();
       }
