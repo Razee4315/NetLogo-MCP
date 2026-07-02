@@ -1,0 +1,18 @@
+{
+  "_comment": "Industry benchmark base rates used as calibration anchors and as the 'benchmark' column in reports. Stage semantics: gate = P(engage with teaser | delivered/impressed), click = P(click | engaged), convert = P(convert | clicked). Sources: aggregate industry reports (Mailchimp/Klaviyo email benchmarks, WordStream ad benchmarks) — replace with your own vertical's numbers or fit from a real campaign via `calibrate`.",
+  "email": {
+    "gate": 0.28,
+    "click": 0.10,
+    "convert": 0.08
+  },
+  "paid_social": {
+    "gate": 0.015,
+    "click": 0.60,
+    "convert": 0.09
+  },
+  "organic": {
+    "gate": 0.20,
+    "click": 0.25,
+    "convert": 0.10
+  }
+}
