@@ -10,14 +10,16 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 
 from .calibration import Calibration, load_base_rates
-from .schemas import Audience
-from .store import EventStore
+
+if TYPE_CHECKING:
+    from .schemas import Audience
+    from .store import EventStore
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 

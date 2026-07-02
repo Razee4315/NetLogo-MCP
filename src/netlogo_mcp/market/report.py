@@ -11,15 +11,17 @@ import html as html_mod
 import re
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from jinja2 import Template
 
 from . import analytics
 from .calibration import Calibration, load_base_rates
 from .config import get_reports_dir
-from .schemas import Audience, CampaignSpec
-from .store import EventStore
+
+if TYPE_CHECKING:
+    from .schemas import Audience, CampaignSpec
+    from .store import EventStore
 
 # ── Data collection ──────────────────────────────────────────────────────────
 

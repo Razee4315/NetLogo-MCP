@@ -176,6 +176,7 @@ mcp = FastMCP(
 from . import prompts as _prompts  # noqa: E402, F401
 from . import resources as _resources  # noqa: E402, F401
 from . import tools as _tools  # noqa: E402, F401
+from .market import tools as _market_tools  # noqa: E402, F401
 
 
 class _HybridStdout:

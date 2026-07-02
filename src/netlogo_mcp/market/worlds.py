@@ -343,7 +343,7 @@ class NetLogoWorld:
     async def state_counts(self) -> dict[str, int]:
         raw = await self._report("state-counts")
         values = [int(v) for v in list(raw)]
-        return dict(zip(STATES, values))
+        return dict(zip(STATES, values, strict=False))
 
     async def wom_this_tick(self) -> int:
         return int(await self._report("wom-this-tick"))

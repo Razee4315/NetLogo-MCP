@@ -17,12 +17,14 @@ import re
 import sqlite3
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
 from .config import get_runs_dir
-from .schemas import Decision
+
+if TYPE_CHECKING:
+    from .schemas import Decision
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (

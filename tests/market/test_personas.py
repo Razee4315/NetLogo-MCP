@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 
 from netlogo_mcp.market.personas import (
-    build_network,
     generate_audience,
     list_audiences,
     load_audience,

@@ -9,11 +9,12 @@ from their archetype's response distribution, so a 1,000-agent run costs
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .schemas import Audience, Persona
+if TYPE_CHECKING:
+    from .schemas import Audience, Persona
 
 # Names for feature_vector() positions — keep in sync with
 # Persona.feature_vector().
@@ -57,7 +58,7 @@ def assign_archetypes(audience: Audience, n_archetypes: int = 0) -> Audience:
 
     km = KMeans(n_clusters=k, n_init=10, random_state=audience.spec.seed)
     labels = km.fit_predict(Xs)
-    for p, label in zip(audience.personas, labels):
+    for p, label in zip(audience.personas, labels, strict=False):
         p.archetype = int(label)
     return audience
 

@@ -16,9 +16,12 @@ Design notes (each guards a known failure mode of naive persona prompting):
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from jinja2 import Template
 
-from .schemas import ExposureEvent, Persona, Stimulus
+if TYPE_CHECKING:
+    from .schemas import ExposureEvent, Persona, Stimulus
 
 # ── System prompt: become the persona ────────────────────────────────────────
 

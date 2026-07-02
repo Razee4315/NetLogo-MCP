@@ -433,7 +433,7 @@ def build_network(
             degree[b] += 1
         slots_by_degree = sorted(range(n), key=lambda s: -degree[s])
         personas_by_influence = sorted(range(n), key=lambda i: -personas[i].influence)
-        for slot, pi in zip(slots_by_degree, personas_by_influence):
+        for slot, pi in zip(slots_by_degree, personas_by_influence, strict=False):
             mapping[slot] = pi
 
     adj: list[list[int]] = [[] for _ in range(n)]
