@@ -151,7 +151,7 @@ async def run_campaign(
     own_store = store is None
     store = store or EventStore(campaign.name)
     cache = ResponseCache()
-    engine_name = "python" if world_factory is PythonWorld else "netlogo"
+    world_name = "python" if world_factory is PythonWorld else "netlogo"
 
     runs: list[dict[str, Any]] = []
     try:
@@ -165,6 +165,9 @@ async def run_campaign(
                     seed=_run_seed(campaign.seed, replicate),
                     cache=cache,
                 )
+                # e.g. "python+HeuristicBackend" / "netlogo+LLMBackend" — the
+                # report reads this to flag heuristic-mode results honestly.
+                engine_name = f"{world_name}+{type(engine.backend).__name__}"
                 await _maybe_call(
                     on_progress,
                     f"running variant '{stimulus.id}' replicate "
