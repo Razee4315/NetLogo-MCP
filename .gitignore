@@ -51,3 +51,8 @@ models/_created_*.nlogox
 
 # COMSES download cache — live data, not source
 models/comses/
+
+# Market simulation runtime artifacts (SynthAudience)
+market_data/
+models/market_sim.nlogox
+validation/hillstrom/hillstrom.csv

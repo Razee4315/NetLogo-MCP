@@ -1,0 +1,29 @@
+# Example audience: busy suburban parents (meal-kit / convenience products)
+name: busy-parents
+description: Dual-income households with kids, short on time, value-conscious
+product_context: "a weekly meal-kit subscription"
+size: 400
+seed: 7
+distributions:
+  age: {mean: 38, sd: 6, min: 26, max: 55}
+  household: {"family with kids": 0.85, "couple, no kids": 0.15}
+  location: {suburban: 0.6, urban: 0.3, rural: 0.1}
+  income_bracket: {low: 0.2, mid: 0.55, high: 0.25}
+  category_involvement: {mean: 0.55, sd: 0.2}
+  price_sensitivity: {mean: 0.65, sd: 0.15}
+  trust_in_ads: {mean: 0.35, sd: 0.15}
+  susceptibility: {mean: 0.6, sd: 0.15}        # parent networks share a lot
+  channels.email: {mean: 0.4, sd: 0.15}
+  channels.paid_social: {mean: 0.6, sd: 0.15}  # instagram/facebook heavy
+  pain_points:
+    __k__: 2
+    "not enough time": 0.6
+    "overwhelmed by too many choices": 0.3
+    "existing options feel overpriced": 0.35
+    "current solution is clunky but familiar": 0.3
+conditionals:
+  - {if_field: income_bracket, equals: low, then_field: price_sensitivity, add: 0.15}
+network:
+  topology: watts-strogatz   # school/neighborhood clusters
+  k: 10
+  rewire: 0.08

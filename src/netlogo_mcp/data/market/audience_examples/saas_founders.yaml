@@ -1,0 +1,42 @@
+# Example audience: bootstrapped SaaS founders (ad-cynical, busy, pragmatic)
+name: saas-founders
+description: Bootstrapped/indie SaaS founders evaluating tools for their business
+product_context: "a churn-analytics SaaS tool"
+size: 300
+seed: 42
+distributions:
+  age: {mean: 33, sd: 8, min: 22, max: 60}
+  gender: {male: 0.72, female: 0.26, nonbinary: 0.02}
+  location: {urban: 0.7, suburban: 0.25, rural: 0.05}
+  income_bracket: {low: 0.25, mid: 0.45, high: 0.30}
+  occupation: {"small business owner": 0.6, "engineer / developer": 0.4}
+  education: {"bachelor's degree": 0.5, "graduate degree": 0.3, "trade / self-taught": 0.2}
+  trust_in_ads: {mean: 0.18, sd: 0.10}          # founders are ad-cynical
+  category_involvement: {mean: 0.65, sd: 0.18}  # tools ARE their business
+  price_sensitivity: {mean: 0.6, sd: 0.18}      # bootstrapped budgets
+  novelty_seeking: {mean: 0.6, sd: 0.15}
+  channels.email: {mean: 0.55, sd: 0.15}        # inbox-driven crowd
+  channels.paid_social: {mean: 0.35, sd: 0.15}  # heavy ad blindness
+  objection_style: {skeptic: 0.35, pragmatist: 0.4, enthusiast: 0.1, bargain-hunter: 0.1, loyalist: 0.05}
+  values:
+    __k__: 3
+    frugality: 0.4
+    quality: 0.35
+    convenience: 0.3
+    novelty: 0.25
+    security: 0.2
+    community: 0.25
+  pain_points:
+    __k__: 2
+    "not enough time": 0.5
+    "burned by products that overpromised": 0.4
+    "hard to tell marketing claims apart": 0.3
+    "existing options feel overpriced": 0.3
+conditionals:
+  # High earners in this crowd care less about price, more about time.
+  - {if_field: income_bracket, equals: high, then_field: price_sensitivity, add: -0.2}
+  # The very young founders live on social, not email.
+  - {if_field: age, lte: 26, then_field: channels.paid_social, add: 0.2}
+network:
+  topology: barabasi-albert   # founder-Twitter dynamics: a few loud hubs
+  k: 8

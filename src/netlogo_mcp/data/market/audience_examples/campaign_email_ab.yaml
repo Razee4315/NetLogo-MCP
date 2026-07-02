@@ -1,0 +1,39 @@
+# Example campaign: A/B email test against the busy-parents audience.
+# (Generate the audience first with audience_examples/busy_parents.yaml.)
+name: mealkit-launch-ab
+audience: busy-parents
+replicates: 3
+max_ticks: 72          # 3 simulated days
+fidelity: mixed        # ~150 individual LLM calls, rest archetype-sampled
+seed: 21
+stimuli:
+  - id: benefit-led
+    type: email
+    teaser:
+      subject: "Dinner, solved: 3 chef-designed meals in 25 minutes"
+      sender: "FreshPlate <hello@freshplate.com>"
+      preheader: "No planning, no waste - first box $9"
+    body_text: >
+      Weeknights are chaos. FreshPlate delivers 3 chef-designed meal kits
+      with pre-portioned ingredients to your door. Cook in 25 minutes, no
+      planning, no waste. Skip or cancel any week. Your first box is $9
+      instead of $27.
+    cta: "Claim your $9 first box"
+    offer: "first box 66% off"
+    price_shown: "$9 first box, then $27/week"
+    channel_params: {channel: email, send_tick: 1, reach: 1.0}
+  - id: urgency-led
+    variant_of: benefit-led
+    type: email
+    teaser:
+      subject: "Last chance: 66% off ends tonight"
+      sender: "FreshPlate <hello@freshplate.com>"
+      preheader: "Don't miss your $9 box"
+    body_text: >
+      Time is running out! Tonight is the LAST CHANCE to get your first
+      FreshPlate box for just $9. Thousands of families already joined this
+      week. Don't miss out on the easiest dinners you'll ever make.
+    cta: "Get 66% off now"
+    offer: "first box 66% off, expires tonight"
+    price_shown: "$9 first box, then $27/week"
+    channel_params: {channel: email, send_tick: 1, reach: 1.0}
