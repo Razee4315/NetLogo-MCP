@@ -266,14 +266,13 @@ class NetLogoWorld:
         await self._load_model(
             market_model_code(), market_model_widgets()
         )
+        # setup-world's clear-all wipes globals, so campaign params are set
+        # afterwards via configure-campaign (same command, ordered).
         await self._command(
-            f'set channel-type "{cp.channel}" '
-            f"set send-tick {cp.send_tick} "
-            f"set reach {cp.reach} "
-            f"set impressions-per-tick {cp.impressions_per_tick} "
-            f"set frequency-cap {cp.frequency_cap}"
+            f"setup-world {seed} {audience.size} "
+            f'configure-campaign "{cp.channel}" {cp.send_tick} {cp.reach} '
+            f"{cp.impressions_per_tick} {cp.frequency_cap}"
         )
-        await self._command(f"setup-world {seed} {audience.size}")
 
         # Per-turtle susceptibility, batched.
         sets = [
@@ -311,7 +310,7 @@ class NetLogoWorld:
         for row in list(raw) if raw is not None else []:
             row = list(row)
             who = int(row[0])
-            social = bool(row[1])
+            social = bool(int(row[1]))  # NetLogo encodes exp-social? as 1/0
             source = int(row[2])
             events.append(
                 ExposureEvent(

@@ -199,6 +199,7 @@ def test_model_code_contains_contract_procedures():
     code = market_model_code()
     for proc in (
         "to setup-world",
+        "to configure-campaign",
         "to go",
         "to-report pending-exposures",
         "to-report state-counts",
@@ -248,7 +249,10 @@ async def test_netlogo_world_setup_batches_commands(email_stimulus):
 
     assert len(ws.loaded) == 1  # model loaded once
     setup_cmds = [c for c in ws.commands if "setup-world" in c]
-    assert setup_cmds == ["setup-world 9 50"]
+    assert len(setup_cmds) == 1
+    assert setup_cmds[0].startswith("setup-world 9 50")
+    # Campaign params configured AFTER setup-world (clear-all wipes globals).
+    assert 'configure-campaign "email"' in setup_cmds[0]
     # Susceptibility writes batched: 50 agents / CHUNK(200) -> exactly 1 command.
     sus_cmds = [c for c in ws.commands if "set susceptibility" in c]
     assert len(sus_cmds) == 1
@@ -266,8 +270,8 @@ async def test_netlogo_world_read_write_contract(email_stimulus):
     await world.setup(aud, email_stimulus, seed=1)
 
     ws.reports["pending-exposures"] = [
-        [3, False, -1, 1, 0.0],
-        [7, True, 3, 2, 0.25],
+        [3, 0, -1, 1, 0.0],
+        [7, 1, 3, 2, 0.25],
     ]
     ws.reports["state-counts"] = [5, 2, 1, 1, 1, 0, 0]
     ws.reports["quiet?"] = False

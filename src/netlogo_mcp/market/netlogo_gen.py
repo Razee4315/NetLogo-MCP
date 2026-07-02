@@ -38,6 +38,8 @@ turtles-own [
 ]
 
 to setup-world [ seed n ]
+  ;; clear-all resets ALL globals — campaign params must be set AFTERWARDS
+  ;; via configure-campaign, never before this call.
   clear-all
   random-seed seed
   create-turtles n [
@@ -51,7 +53,7 @@ to setup-world [ seed n ]
     set pending-share? false
     set shared? false
     set scheduled []
-    set reach-member? (random-float 1 < reach)
+    set reach-member? false
     set shape "circle"
     set size 0.8
     setxy random-xcor random-ycor
@@ -60,6 +62,15 @@ to setup-world [ seed n ]
   set wom-this-tick 0
   set wom-total 0
   reset-ticks
+end
+
+to configure-campaign [ channel stick sreach imp cap ]
+  set channel-type channel
+  set send-tick stick
+  set reach sreach
+  set impressions-per-tick imp
+  set frequency-cap cap
+  ask turtles [ set reach-member? (random-float 1 < reach) ]
 end
 
 to recolor
@@ -155,9 +166,11 @@ to drift-sentiment
 end
 
 to-report pending-exposures
+  ;; numbers only — pynetlogo cannot marshal booleans inside nested lists,
+  ;; so exp-social? is encoded as 1/0.
   report map [ t ->
-    (list ([who] of t) ([exp-social?] of t) ([source-who] of t)
-          ([exposure-count] of t) ([sentiment] of t))
+    (list ([who] of t) (ifelse-value ([exp-social?] of t) [1] [0])
+          ([source-who] of t) ([exposure-count] of t) ([sentiment] of t))
   ] sort turtles with [ exposure-pending? ]
 end
 
