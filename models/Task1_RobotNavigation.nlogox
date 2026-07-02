@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model version="NetLogo 7.0.3" snapToGrid="false">
+  <code>globals [
+  obstacle-density
+  strategy
+  trials-per-strategy
+  start-patch
+  goal-patch
+  steps
+  max-steps
+  success?
+  bfs-path
+  results-random
+  results-greedy
+  results-bfs
+]
+
+breed [ robots robot ]
+
+patches-own [ obstacle? visited? on-path? ]
+
+to setup
+  clear-all
+  resize-world 0 19 0 19
+  set-patch-size 20
+  set obstacle-density    18
+  set strategy            "random"
+  set trials-per-strategy 10
+  set max-steps           2000
+  set results-random      []
+  set results-greedy      []
+  set results-bfs         []
+  build-grid
+  spawn-robot
+  reset-ticks
+end
+
+to build-grid
+  ask patches [
+    set obstacle? false
+    set visited? false
+    set on-path? false
+    set pcolor white
+  ]
+  set start-patch patch 0 19
+  set goal-patch  patch 19 0
+  ask patches [
+    if random-float 100 &lt; obstacle-density [ set obstacle? true ]
+  ]
+  ask start-patch [ set obstacle? false ]
+  ask goal-patch  [ set obstacle? false ]
+  ask patches [ if obstacle? [ set pcolor black ] ]
+  ask start-patch [ set pcolor green ]
+  ask goal-patch  [ set pcolor red   ]
+end
+
+to spawn-robot
+  ask robots [ die ]
+  ask patches [
+    set visited? false
+    set on-path? false
+    if not obstacle? [ set pcolor white ]
+  ]
+  ask start-patch [ set pcolor green  set visited? true ]
+  ask goal-patch  [ set pcolor red ]
+  create-robots 1 [
+    move-to start-patch
+    set shape "default"
+    set color blue
+    set size 0.8
+  ]
+  set steps 0
+  set success? false
+  set bfs-path 0
+end
+
+to go
+  if success? or steps &gt;= max-steps [ stop ]
+  ask one-of robots [
+    if strategy = "random" [ move-random ]
+    if strategy = "greedy" [ move-greedy ]
+    if strategy = "bfs"    [ move-bfs    ]
+  ]
+  set steps steps + 1
+  if [patch-here] of one-of robots = goal-patch [ set success? true ]
+  colour-trail
+  tick
+end
+
+to move-random
+  let opts neighbors4 with [ not obstacle? ]
+  if any? opts [
+    let t one-of opts
+    face t
+    move-to t
+    ask patch-here [ set visited? true ]
+  ]
+end
+
+to move-greedy
+  let opts neighbors4 with [ not obstacle? ]
+  if any? opts [
+    let t min-one-of opts [ dist-to-goal ]
+    face t
+    move-to t
+    ask patch-here [ set visited? true ]
+  ]
+end
+
+to-report dist-to-goal
+  report abs (pxcor - [pxcor] of goal-patch) +
+         abs (pycor - [pycor] of goal-patch)
+end
+
+to move-bfs
+  if bfs-path = 0 or (is-list? bfs-path and empty? bfs-path) [
+    set bfs-path bfs-plan start-patch goal-patch
+    if not empty? bfs-path [
+      ask patches with [ member? self bfs-path
+                         and self != start-patch
+                         and self != goal-patch ]
+        [ set on-path? true  set pcolor 67 ]
+    ]
+  ]
+  if empty? bfs-path [ stop ]
+  let nxt first bfs-path
+  set bfs-path but-first bfs-path
+  face nxt
+  move-to nxt
+  ask patch-here [ set visited? true ]
+end
+
+to-report bfs-plan [src dst]
+  let frontier (list src)
+  let parent-list []
+  let seen (patch-set src)
+  let found? false
+  while [ not empty? frontier and not found? ] [
+    let cur first frontier
+    set frontier but-first frontier
+    ifelse cur = dst
+      [ set found? true ]
+      [ ask cur [
+          ask neighbors4 with [ not obstacle? and not member? self seen ] [
+            set parent-list lput (list self cur) parent-list
+            set seen (patch-set seen self)
+            set frontier lput self frontier
+          ]
+        ]
+      ]
+  ]
+  ifelse found?
+    [ report reconstruct parent-list src dst ]
+    [ report [] ]
+end
+
+to-report reconstruct [pl src dst]
+  let path []
+  let cur dst
+  while [ cur != src ] [
+    set path fput cur path
+    let pair first filter [ p -&gt; first p = cur ] pl
+    set cur item 1 pair
+  ]
+  report path
+end
+
+to colour-trail
+  ask patches with [ visited? and not obstacle? and not on-path?
+                     and self != start-patch and self != goal-patch ]
+    [ set pcolor 97 ]
+end
+
+to run-trials
+  let n trials-per-strategy
+  let rs []
+  let i 0
+  while [ i &lt; n ] [
+    spawn-robot
+    while [ not success? and steps &lt; max-steps ] [ go ]
+    set rs lput (list steps count patches with [ visited? ] success?) rs
+    set i i + 1
+  ]
+  if strategy = "random" [ set results-random rs ]
+  if strategy = "greedy" [ set results-greedy rs ]
+  if strategy = "bfs"    [ set results-bfs    rs ]
+  print (word strategy " " summarise rs)
+end
+
+to run-all-strategies
+  set strategy "random"  run-trials
+  set strategy "greedy"  run-trials
+  set strategy "bfs"     run-trials
+end
+
+to-report summarise [rs]
+  if empty? rs [ report "(no data)" ]
+  let succ length filter [ r -&gt; item 2 r ] rs
+  let mean-s mean map [ r -&gt; item 0 r ] rs
+  let mean-p mean map [ r -&gt; item 1 r ] rs
+  report (word "trials=" length rs
+               " success=" succ "/" length rs
+               " mean-steps=" precision mean-s 2
+               " mean-path=" precision mean-p 2)
+end</code>
+  <widgets>
+    <view x="210" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="430" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="430" tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16" minPxcor="-16"></view>
+    <button x="10" y="10" width="190" height="45" kind="Observer" forever="false" disableUntilTicks="false" display="Setup">setup</button>
+    <button x="10" y="65" width="190" height="45" kind="Observer" forever="true" disableUntilTicks="true" display="Go">go</button>
+    <monitor x="10" y="130" width="190" height="45" fontSize="11" precision="0" display="Time Steps">ticks</monitor>
+  </widgets>
+  <info><![CDATA[## WHAT IS IT?
+
+A model created via NetLogo MCP Server.]]></info>
+  <turtleShapes>
+    <shape name="default" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="5"></point>
+        <point x="40" y="250"></point>
+        <point x="150" y="205"></point>
+        <point x="260" y="250"></point>
+      </polygon>
+    </shape>
+    <shape name="circle" rotatable="false" editableColorIndex="0">
+      <circle color="-1920102913" filled="true" marked="true" x="0" y="0" diameter="300"></circle>
+    </shape>
+  </turtleShapes>
+  <linkShapes>
+    <shape name="default" curviness="0.0">
+      <lines>
+        <line x="-0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+        <line x="0.0" visible="true">
+          <dash value="1.0"></dash>
+          <dash value="0.0"></dash>
+        </line>
+        <line x="0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+      </lines>
+      <indicator>
+        <shape name="link direction" rotatable="true" editableColorIndex="0">
+          <line endX="90" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+          <line endX="210" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+        </shape>
+      </indicator>
+    </shape>
+  </linkShapes>
+</model>

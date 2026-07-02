@@ -67,13 +67,8 @@ class Calibration:
             return float(p_raw)
         return _sigmoid(m["a"] + m["b"] * _logit(p_raw))
 
-    def apply_funnel(
-        self, channel: str, rates: dict[str, float]
-    ) -> dict[str, float]:
-        return {
-            stage: self.apply(channel, stage, p)
-            for stage, p in rates.items()
-        }
+    def apply_funnel(self, channel: str, rates: dict[str, float]) -> dict[str, float]:
+        return {stage: self.apply(channel, stage, p) for stage, p in rates.items()}
 
     def is_identity(self) -> bool:
         return not self.maps
@@ -100,9 +95,7 @@ class Calibration:
             a = float(a)
         self.maps.setdefault(channel, {})[stage] = {"a": a, "b": b}
 
-    def fit_to_base_rates(
-        self, channel: str, simulated: dict[str, float]
-    ) -> None:
+    def fit_to_base_rates(self, channel: str, simulated: dict[str, float]) -> None:
         """Anchor each observed simulated stage rate to the benchmark rate."""
         base = load_base_rates().get(channel)
         if base is None:

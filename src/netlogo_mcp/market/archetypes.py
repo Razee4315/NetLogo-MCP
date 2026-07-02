@@ -128,9 +128,7 @@ def representative_indices(
     for _, idxs in sorted(groups.items()):
         quota = max(1, round(sample_size * len(idxs) / total))
         quota = min(quota, len(idxs))
-        picked.extend(
-            int(i) for i in rng.choice(idxs, size=quota, replace=False)
-        )
+        picked.extend(int(i) for i in rng.choice(idxs, size=quota, replace=False))
     # Rounding can over- or undershoot the target: trim randomly, then top up
     # from personas not yet picked.
     rng.shuffle(picked)
@@ -138,7 +136,5 @@ def representative_indices(
     if len(picked) < sample_size:
         remaining = [i for i in range(total) if i not in set(picked)]
         need = min(sample_size - len(picked), len(remaining))
-        picked.extend(
-            int(i) for i in rng.choice(remaining, size=need, replace=False)
-        )
+        picked.extend(int(i) for i in rng.choice(remaining, size=need, replace=False))
     return sorted(picked)

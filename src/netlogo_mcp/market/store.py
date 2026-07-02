@@ -122,7 +122,11 @@ class EventStore:
         return run_id
 
     def finish_run(
-        self, run_id: str, ticks: int, llm_calls: int, cache_hits: int,
+        self,
+        run_id: str,
+        ticks: int,
+        llm_calls: int,
+        cache_hits: int,
         status: str = "done",
     ) -> None:
         self._conn.execute(

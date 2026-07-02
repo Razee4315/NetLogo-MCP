@@ -331,8 +331,12 @@ async def test_python_world_fully_deterministic(email_stimulus):
             for e in events:
                 share = bool(rng.random() < 0.2)
                 decisions.append(
-                    _decision(e.agent_index, "clicked" if share else "ignored",
-                              0.5, will_share=share)
+                    _decision(
+                        e.agent_index,
+                        "clicked" if share else "ignored",
+                        0.5,
+                        will_share=share,
+                    )
                 )
             await world.apply_decisions(decisions)
         return trace, list(world.state)

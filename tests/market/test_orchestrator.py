@@ -43,7 +43,11 @@ async def test_full_campaign_run(audience, campaign):
     decisions = store.decisions_df()
     assert len(decisions) >= audience.size * 2  # every exposure resolved, per rep
     assert set(decisions["state"]) <= {
-        "engaged", "clicked", "converted", "ignored", "annoyed",
+        "engaged",
+        "clicked",
+        "converted",
+        "ignored",
+        "annoyed",
     }
     tm = store.tick_metrics_df()
     assert not tm.empty
@@ -111,12 +115,16 @@ async def test_fast_fidelity_uses_fewer_calls_than_full(audience, campaign):
         update={"name": "fid-fast", "fidelity": "fast"}
     )
     s_full = await run_campaign(
-        campaign_full, audience,
-        store=EventStore("fid-full"), backend=HeuristicBackend(),
+        campaign_full,
+        audience,
+        store=EventStore("fid-full"),
+        backend=HeuristicBackend(),
     )
     s_fast = await run_campaign(
-        campaign_fast, audience,
-        store=EventStore("fid-fast"), backend=HeuristicBackend(),
+        campaign_fast,
+        audience,
+        store=EventStore("fid-fast"),
+        backend=HeuristicBackend(),
     )
     assert s_fast["total_llm_calls"] < s_full["total_llm_calls"]
 

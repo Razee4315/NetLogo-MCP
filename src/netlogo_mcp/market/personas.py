@@ -171,9 +171,9 @@ def _get_path(obj: dict[str, Any], path: str) -> Any:
 def _matches(rule_value: Any, rule: Any) -> bool:
     """Evaluate one ConditionalRule condition against a sampled value."""
     if rule.equals is not None:
-        return rule_value == rule.equals
+        return bool(rule_value == rule.equals)
     if rule.is_in is not None:
-        return rule_value in rule.is_in
+        return bool(rule_value in rule.is_in)
     ok = True
     if rule.gte is not None:
         try:
@@ -328,9 +328,7 @@ def render_persona_card(
     return f"{opener}{home} {money} {cares}{pain_txt} {style_txt} {ad_txt}{ctx}"
 
 
-def _purchase_history_sketch(
-    fields: dict[str, Any], rng: np.random.Generator
-) -> str:
+def _purchase_history_sketch(fields: dict[str, Any], rng: np.random.Generator) -> str:
     loyalty = float(fields.get("brand_loyalty", 0.5))
     price_sens = float(fields.get("price_sensitivity", 0.5))
     if loyalty > 0.65:
@@ -353,7 +351,9 @@ def _purchase_history_sketch(
 # ── Social network generation ────────────────────────────────────────────────
 
 
-def _ws_edges(n: int, k: int, rewire: float, rng: np.random.Generator) -> set[tuple[int, int]]:
+def _ws_edges(
+    n: int, k: int, rewire: float, rng: np.random.Generator
+) -> set[tuple[int, int]]:
     """Watts-Strogatz small world on n nodes, mean degree k (even)."""
     edges: set[tuple[int, int]] = set()
     half = max(1, k // 2)
@@ -387,8 +387,10 @@ def _ba_edges(n: int, m: int, rng: np.random.Generator) -> set[tuple[int, int]]:
     for v in range(m, n):
         chosen: set[int] = set()
         while len(chosen) < m:
-            pick = repeated[int(rng.integers(0, len(repeated)))] if repeated else int(
-                rng.integers(0, v)
+            pick = (
+                repeated[int(rng.integers(0, len(repeated)))]
+                if repeated
+                else int(rng.integers(0, v))
             )
             if pick != v:
                 chosen.add(pick)
@@ -458,9 +460,7 @@ def generate_audience(spec: AudienceSpec) -> Audience:
     for i in range(spec.size):
         fields = _sample_fields(spec, rng)
         fields["purchase_history_sketch"] = _purchase_history_sketch(fields, rng)
-        fields["persona_card"] = render_persona_card(
-            fields, spec.product_context, rng
-        )
+        fields["persona_card"] = render_persona_card(fields, spec.product_context, rng)
         personas.append(Persona(id=f"{spec.name}-{i:04d}", **fields))
 
     edges = build_network(spec.network, personas, rng)

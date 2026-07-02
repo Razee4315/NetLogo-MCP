@@ -12,5 +12,7 @@ repos:
       - id: mypy
         additional_dependencies:
           - types-setuptools
+          - types-PyYAML
+          - pydantic>=2.5   # needed to load the pydantic.mypy plugin
         args: [--config-file=pyproject.toml, src/netlogo_mcp/]
         pass_filenames: false

@@ -219,13 +219,13 @@ def market_model_widgets() -> list[dict[str, Any]]:
         {"type": "monitor", "code": "ticks", "label": "hour", "precision": 0},
         {
             "type": "monitor",
-            "code": "count turtles with [ state = \"converted\" ]",
+            "code": 'count turtles with [ state = "converted" ]',
             "label": "converted",
             "precision": 0,
         },
         {
             "type": "monitor",
-            "code": "count turtles with [ state = \"clicked\" ]",
+            "code": 'count turtles with [ state = "clicked" ]',
             "label": "clicked",
             "precision": 0,
         },
@@ -242,27 +242,27 @@ def market_model_widgets() -> list[dict[str, Any]]:
             "y_axis": "people",
             "pens": [
                 {
-                    "code": "plot count turtles with [ state = \"exposed\" ]",
+                    "code": 'plot count turtles with [ state = "exposed" ]',
                     "label": "exposed",
                     "color": "yellow",
                 },
                 {
-                    "code": "plot count turtles with [ state = \"engaged\" ]",
+                    "code": 'plot count turtles with [ state = "engaged" ]',
                     "label": "engaged",
                     "color": "orange",
                 },
                 {
-                    "code": "plot count turtles with [ state = \"clicked\" ]",
+                    "code": 'plot count turtles with [ state = "clicked" ]',
                     "label": "clicked",
                     "color": "sky",
                 },
                 {
-                    "code": "plot count turtles with [ state = \"converted\" ]",
+                    "code": 'plot count turtles with [ state = "converted" ]',
                     "label": "converted",
                     "color": "green",
                 },
                 {
-                    "code": "plot count turtles with [ state = \"ignored\" ]",
+                    "code": 'plot count turtles with [ state = "ignored" ]',
                     "label": "ignored",
                     "color": "gray",
                 },

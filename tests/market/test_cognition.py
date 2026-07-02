@@ -105,8 +105,13 @@ async def test_stage2_produces_valid_reaction(email_stimulus):
         r = await b.stage2(_persona(), email_stimulus, _event(), seed)
         assert -1 <= r.sentiment <= 1
         assert r.action in (
-            "ignore", "click", "save_for_later", "buy", "share",
-            "unsubscribe", "report_spam",
+            "ignore",
+            "click",
+            "save_for_later",
+            "buy",
+            "share",
+            "unsubscribe",
+            "report_spam",
         )
         assert r.reason
 
@@ -151,9 +156,7 @@ async def test_full_fidelity_every_agent_individual(audience, email_stimulus):
 
 async def test_fast_fidelity_amortizes_backend_calls(audience, email_stimulus):
     backend = HeuristicBackend()
-    eng = CognitionEngine(
-        audience, backend=backend, fidelity="fast", archetype_draws=3
-    )
+    eng = CognitionEngine(audience, backend=backend, fidelity="fast", archetype_draws=3)
     events = [_event(agent=i) for i in range(60)]
     await eng.decide_batch(events, email_stimulus)
     n_arch = len({p.archetype for p in audience.personas})
@@ -232,9 +235,7 @@ def _fake_server(behavior: str):
             (body.get("response_format") or {}).get("type") == "json_schema"
         ):
             return httpx.Response(400, json={"error": "response_format unsupported"})
-        content = json.dumps(
-            {"reason": "meh, not for me", "action": "scroll_past"}
-        )
+        content = json.dumps({"reason": "meh, not for me", "action": "scroll_past"})
         if behavior == "fenced":
             content = f"```json\n{content}\n```"
         return httpx.Response(

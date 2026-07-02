@@ -1,0 +1,231 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "https://excalidraw.com",
+  "elements": [
+    {
+      "type": "text", "id": "title", "x": 180, "y": 30, "width": 760, "height": 40,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": null,
+      "seed": 11001, "version": 1, "versionNonce": 11001, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "fontSize": 30, "fontFamily": 1, "text": "Ebola Model  —  Agent Types  (who the people are)",
+      "textAlign": "left", "verticalAlign": "top", "containerId": null,
+      "originalText": "Ebola Model  —  Agent Types  (who the people are)", "lineHeight": 1.25, "baseline": 26
+    },
+
+    {
+      "type": "rectangle", "id": "agent_box", "x": 560, "y": 300, "width": 300, "height": 120,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "#ffec99",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": { "type": 3 },
+      "seed": 12001, "version": 1, "versionNonce": 12001, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false
+    },
+    {
+      "type": "text", "id": "agent_txt", "x": 570, "y": 337, "width": 280, "height": 46,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": null,
+      "seed": 12002, "version": 1, "versionNonce": 12002, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "fontSize": 22, "fontFamily": 1, "text": "AGENT\n(one person)",
+      "textAlign": "center", "verticalAlign": "top", "containerId": null,
+      "originalText": "AGENT\n(one person)", "lineHeight": 1.25, "baseline": 18
+    },
+
+    {
+      "type": "rectangle", "id": "who_box", "x": 560, "y": 100, "width": 300, "height": 120,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": { "type": 3 },
+      "seed": 13001, "version": 1, "versionNonce": 13001, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false
+    },
+    {
+      "type": "text", "id": "who_txt", "x": 570, "y": 126, "width": 280, "height": 68,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": null,
+      "seed": 13002, "version": 1, "versionNonce": 13002, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "WHO THEY ARE\nage  ·  sex\nethnicity  ·  language",
+      "textAlign": "center", "verticalAlign": "top", "containerId": null,
+      "originalText": "WHO THEY ARE\nage  ·  sex\nethnicity  ·  language", "lineHeight": 1.25, "baseline": 15
+    },
+
+    {
+      "type": "rectangle", "id": "where_box", "x": 150, "y": 300, "width": 300, "height": 120,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": { "type": 3 },
+      "seed": 14001, "version": 1, "versionNonce": 14001, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false
+    },
+    {
+      "type": "text", "id": "where_txt", "x": 160, "y": 326, "width": 280, "height": 68,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": null,
+      "seed": 14002, "version": 1, "versionNonce": 14002, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "WHERE\nzone  ·  household\ndisplaced?",
+      "textAlign": "center", "verticalAlign": "top", "containerId": null,
+      "originalText": "WHERE\nzone  ·  household\ndisplaced?", "lineHeight": 1.25, "baseline": 15
+    },
+
+    {
+      "type": "rectangle", "id": "job_box", "x": 960, "y": 290, "width": 340, "height": 150,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": { "type": 3 },
+      "seed": 15001, "version": 1, "versionNonce": 15001, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false
+    },
+    {
+      "type": "text", "id": "job_txt", "x": 970, "y": 320, "width": 320, "height": 90,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": null,
+      "seed": 15002, "version": 1, "versionNonce": 15002, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "JOB + MONEY\nrole: miner, farmer,\ntrader, child...\nSES: rich / middle / poor",
+      "textAlign": "center", "verticalAlign": "top", "containerId": null,
+      "originalText": "JOB + MONEY\nrole: miner, farmer,\ntrader, child...\nSES: rich / middle / poor", "lineHeight": 1.25, "baseline": 15
+    },
+
+    {
+      "type": "rectangle", "id": "trust_box", "x": 545, "y": 540, "width": 330, "height": 130,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "#a5d8ff",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": { "type": 3 },
+      "seed": 16001, "version": 1, "versionNonce": 16001, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false
+    },
+    {
+      "type": "text", "id": "trust_txt", "x": 555, "y": 560, "width": 310, "height": 90,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": null,
+      "seed": 16002, "version": 1, "versionNonce": 16002, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "TRUST + INFLUENCE\nleader people listen to?\ntrust in health, govt,\nchiefs, religion",
+      "textAlign": "center", "verticalAlign": "top", "containerId": null,
+      "originalText": "TRUST + INFLUENCE\nleader people listen to?\ntrust in health, govt,\nchiefs, religion", "lineHeight": 1.25, "baseline": 15
+    },
+
+    {
+      "type": "rectangle", "id": "info_box", "x": 545, "y": 745, "width": 330, "height": 100,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": { "type": 3 },
+      "seed": 17001, "version": 1, "versionNonce": 17001, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false
+    },
+    {
+      "type": "text", "id": "info_txt", "x": 555, "y": 772, "width": 310, "height": 46,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": null,
+      "seed": 17002, "version": 1, "versionNonce": 17002, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "fontSize": 18, "fontFamily": 1, "text": "feeds  →  INFORMATION /\nTRUST MODULE  (Serge)",
+      "textAlign": "center", "verticalAlign": "top", "containerId": null,
+      "originalText": "feeds  →  INFORMATION /\nTRUST MODULE  (Serge)", "lineHeight": 1.25, "baseline": 15
+    },
+
+    {
+      "type": "rectangle", "id": "key_box", "x": 150, "y": 560, "width": 350, "height": 190,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "#f1f3f5",
+      "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "dashed", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": { "type": 3 },
+      "seed": 18001, "version": 1, "versionNonce": 18001, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false
+    },
+    {
+      "type": "text", "id": "key_txt", "x": 165, "y": 588, "width": 320, "height": 113,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": null,
+      "seed": 18002, "version": 1, "versionNonce": 18002, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "fontSize": 17, "fontFamily": 1, "text": "KEY IDEA\nLayers, not separate models\nEthnicity  →  trust & authority\nSES  →  access to care\nFew leaders influence many",
+      "textAlign": "left", "verticalAlign": "top", "containerId": null,
+      "originalText": "KEY IDEA\nLayers, not separate models\nEthnicity  →  trust & authority\nSES  →  access to care\nFew leaders influence many", "lineHeight": 1.25, "baseline": 14
+    },
+
+    {
+      "type": "rectangle", "id": "roles_box", "x": 960, "y": 540, "width": 360, "height": 210,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "#f1f3f5",
+      "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "dashed", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": { "type": 3 },
+      "seed": 19001, "version": 1, "versionNonce": 19001, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false
+    },
+    {
+      "type": "text", "id": "roles_txt", "x": 975, "y": 568, "width": 330, "height": 135,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": null,
+      "seed": 19002, "version": 1, "versionNonce": 19002, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "fontSize": 17, "fontFamily": 1, "text": "ROLE EXAMPLES\nMany:  miner, farmer, trader,\nmining support, child/student\nFew but key:  health worker,\nteacher, priest, chief, militia",
+      "textAlign": "left", "verticalAlign": "top", "containerId": null,
+      "originalText": "ROLE EXAMPLES\nMany:  miner, farmer, trader,\nmining support, child/student\nFew but key:  health worker,\nteacher, priest, chief, militia", "lineHeight": 1.25, "baseline": 14
+    },
+
+    {
+      "type": "arrow", "id": "ar_who", "x": 710, "y": 220, "width": 0, "height": 80,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": { "type": 2 },
+      "seed": 20001, "version": 1, "versionNonce": 20001, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "points": [[0, 0], [0, 80]], "lastCommittedPoint": null,
+      "startBinding": null, "endBinding": null, "startArrowhead": null, "endArrowhead": null
+    },
+    {
+      "type": "arrow", "id": "ar_where", "x": 450, "y": 360, "width": 110, "height": 0,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": { "type": 2 },
+      "seed": 20002, "version": 1, "versionNonce": 20002, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "points": [[0, 0], [110, 0]], "lastCommittedPoint": null,
+      "startBinding": null, "endBinding": null, "startArrowhead": null, "endArrowhead": null
+    },
+    {
+      "type": "arrow", "id": "ar_job", "x": 860, "y": 360, "width": 100, "height": 5,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": { "type": 2 },
+      "seed": 20003, "version": 1, "versionNonce": 20003, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "points": [[0, 0], [100, 5]], "lastCommittedPoint": null,
+      "startBinding": null, "endBinding": null, "startArrowhead": null, "endArrowhead": null
+    },
+    {
+      "type": "arrow", "id": "ar_trust", "x": 710, "y": 420, "width": 0, "height": 120,
+      "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": { "type": 2 },
+      "seed": 20004, "version": 1, "versionNonce": 20004, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "points": [[0, 0], [0, 120]], "lastCommittedPoint": null,
+      "startBinding": null, "endBinding": null, "startArrowhead": null, "endArrowhead": null
+    },
+    {
+      "type": "arrow", "id": "ar_info", "x": 710, "y": 670, "width": 0, "height": 75,
+      "angle": 0, "strokeColor": "#2f9e44", "backgroundColor": "transparent",
+      "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1,
+      "opacity": 100, "groupIds": [], "frameId": null, "roundness": { "type": 2 },
+      "seed": 20005, "version": 1, "versionNonce": 20005, "isDeleted": false,
+      "boundElements": [], "updated": 1, "link": null, "locked": false,
+      "points": [[0, 0], [0, 75]], "lastCommittedPoint": null,
+      "startBinding": null, "endBinding": null, "startArrowhead": null, "endArrowhead": "arrow"
+    }
+  ],
+  "appState": { "gridSize": null, "viewBackgroundColor": "#ffffff" },
+  "files": {}
+}

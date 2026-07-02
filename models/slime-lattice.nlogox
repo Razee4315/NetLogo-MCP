@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model version="NetLogo 7.0.3" snapToGrid="false">
+  <code>patches-own [ chem ]
+
+to setup
+  clear-all
+  resize-world -100 100 -100 100
+  set-patch-size 3
+  ask patches [ set chem 0 set pcolor black ]
+  create-turtles population [
+    setxy random-xcor random-ycor
+    set heading random 360
+    set color orange
+    set size 1
+  ]
+  reset-ticks
+end
+
+to go
+  ;; --- sense &amp; steer (each agent reads 3 forward sensors) ---
+  ask turtles [
+    let c sniff 0
+    let r sniff sensor-angle
+    let l sniff (0 - sensor-angle)
+    ifelse (c &gt; l) and (c &gt; r) [
+      ;; trail is strongest straight ahead -&gt; hold course
+    ] [
+      ifelse (c &lt; l) and (c &lt; r) [
+        ;; nothing ahead -&gt; random wiggle to explore
+        ifelse random 2 = 0 [ rt rotation-angle ] [ lt rotation-angle ]
+      ] [
+        ifelse (r &gt; l) [ rt rotation-angle ] [ lt rotation-angle ]
+      ]
+    ]
+    fd 1
+    ask patch-here [ set chem chem + deposit-amount ]
+  ]
+  ;; --- chemical field: diffuse then evaporate ---
+  diffuse chem diffusion-rate
+  ask patches [
+    set chem chem * (1 - evaporation-rate)
+    set pcolor scale-color green chem 0 6
+  ]
+  tick
+end
+
+;; read the trail at a forward sensor offset `ang` degrees, sensor-distance ahead
+to-report sniff [ang]
+  let target patch-right-and-ahead ang sensor-distance
+  ifelse target != nobody [ report [chem] of target ] [ report 0 ]
+end</code>
+  <widgets>
+    <view x="410" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="430" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="430" tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16" minPxcor="-16"></view>
+    <button x="10" y="10" width="190" height="45" kind="Observer" forever="false" disableUntilTicks="false" display="setup">setup</button>
+    <button x="10" y="65" width="190" height="45" kind="Observer" forever="true" disableUntilTicks="false" display="go">go</button>
+    <slider x="10" y="120" width="190" height="50" display="population" variable="population" min="100.0" max="6000.0" default="3000.0" step="100.0" direction="Horizontal"></slider>
+    <slider x="10" y="180" width="190" height="50" display="sensor-angle" variable="sensor-angle" min="0.0" max="90.0" default="22.0" step="1.0" direction="Horizontal"></slider>
+    <slider x="10" y="240" width="190" height="50" display="sensor-distance" variable="sensor-distance" min="1.0" max="20.0" default="7.0" step="1.0" direction="Horizontal"></slider>
+    <slider x="10" y="300" width="190" height="50" display="rotation-angle" variable="rotation-angle" min="0.0" max="90.0" default="25.0" step="1.0" direction="Horizontal"></slider>
+    <slider x="10" y="360" width="190" height="50" display="deposit-amount" variable="deposit-amount" min="0.0" max="10.0" default="2.0" step="0.5" direction="Horizontal"></slider>
+    <slider x="210" y="10" width="190" height="50" display="evaporation-rate" variable="evaporation-rate" min="0.0" max="0.5" default="0.08" step="0.01" direction="Horizontal"></slider>
+    <slider x="210" y="70" width="190" height="50" display="diffusion-rate" variable="diffusion-rate" min="0.0" max="1.0" default="0.6" step="0.05" direction="Horizontal"></slider>
+    <monitor x="210" y="130" width="190" height="60" fontSize="11" precision="0" display="agents">count turtles</monitor>
+    <monitor x="210" y="200" width="190" height="60" fontSize="11" precision="3" display="mean-trail">mean [chem] of patches</monitor>
+    <plot x="210" y="270" width="190" height="160" display="trail energy" xAxis="time" yAxis="mean chem" xMin="0.0" xMax="10.0" yMin="0.0" yMax="10.0" autoPlotX="true" autoPlotY="true" legend="true"><setup></setup><update></update><pen interval="1.0" mode="0" display="mean-chem" color="-10964943" legend="true"><setup></setup><update>plot mean [chem] of patches</update></pen></plot>
+  </widgets>
+  <info><![CDATA[## WHAT IS IT?
+
+A model created via NetLogo MCP Server.]]></info>
+  <turtleShapes>
+    <shape name="default" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="5"></point>
+        <point x="40" y="250"></point>
+        <point x="150" y="205"></point>
+        <point x="260" y="250"></point>
+      </polygon>
+    </shape>
+    <shape name="circle" rotatable="false" editableColorIndex="0">
+      <circle color="-1920102913" filled="true" marked="true" x="0" y="0" diameter="300"></circle>
+    </shape>
+  </turtleShapes>
+  <linkShapes>
+    <shape name="default" curviness="0.0">
+      <lines>
+        <line x="-0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+        <line x="0.0" visible="true">
+          <dash value="1.0"></dash>
+          <dash value="0.0"></dash>
+        </line>
+        <line x="0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+      </lines>
+      <indicator>
+        <shape name="link direction" rotatable="true" editableColorIndex="0">
+          <line endX="90" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+          <line endX="210" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+        </shape>
+      </indicator>
+    </shape>
+  </linkShapes>
+</model>

@@ -33,16 +33,14 @@ def build_report_data(
     calibration: Calibration | None = None,
 ) -> dict[str, Any]:
     calibration = calibration or Calibration.load()
-    channel_by_variant = {
+    channel_by_variant: dict[str, str] = {
         s.id: s.channel_params.channel for s in campaign.stimuli
     }
     runs = store.runs_df()
     engines = sorted(set(runs["engine"])) if len(runs) else []
     heuristic = any("Heuristic" in e for e in engines)
 
-    funnel = analytics.funnel_summary(
-        store, audience, calibration, channel_by_variant
-    )
+    funnel = analytics.funnel_summary(store, audience, calibration, channel_by_variant)
     variants: dict[str, Any] = {}
     for stim in campaign.stimuli:
         if stim.id not in funnel:
@@ -51,9 +49,7 @@ def build_report_data(
             "teaser": stim.teaser_text(),
             "channel": stim.channel_params.channel,
             "funnel": funnel[stim.id],
-            "benchmark": load_base_rates().get(
-                stim.channel_params.channel, {}
-            ),
+            "benchmark": load_base_rates().get(stim.channel_params.channel, {}),
             "objections": analytics.mine_objections(store, stim.id),
             "wom": analytics.wom_stats(store, stim.id),
             "weak_points": analytics.weak_points(
@@ -165,7 +161,9 @@ levels{% endif %}. A synthetic audience is a rehearsal, not the market._
 
 
 def render_markdown(data: dict[str, Any]) -> str:
-    return _MD_TEMPLATE.render(**data)
+    # str() wrap: Template.render is untyped without jinja2 stubs (isolated
+    # pre-commit mypy) and would otherwise return Any.
+    return str(_MD_TEMPLATE.render(**data))
 
 
 # ── HTML (plotly) ────────────────────────────────────────────────────────────
@@ -262,7 +260,7 @@ def render_html(data: dict[str, Any]) -> str:
 
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
-<title>Pre-Flight — {html_mod.escape(data['campaign'])}</title>
+<title>Pre-Flight — {html_mod.escape(data["campaign"])}</title>
 <style>
  body {{ font-family: -apple-system, Segoe UI, sans-serif; max-width: 960px;
         margin: 2rem auto; padding: 0 1rem; color: #1a202c; line-height: 1.55; }}

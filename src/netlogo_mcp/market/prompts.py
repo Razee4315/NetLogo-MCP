@@ -190,13 +190,18 @@ marketing message you were shown. Answer honestly, in your own voice, in \
 
 
 def render_system(persona: Persona) -> str:
-    return SYSTEM_TEMPLATE.render(
-        card=persona.persona_card or f"A {persona.age}-year-old {persona.occupation}.",
-        trust=persona.trust_in_ads,
-        objection_style=persona.objection_style,
-        price_sensitivity=persona.price_sensitivity,
-        brand_loyalty=persona.brand_loyalty,
-        novelty_seeking=persona.novelty_seeking,
+    # str() wrap: Template.render is untyped when jinja2 stubs are absent
+    # (isolated pre-commit mypy), so it would otherwise return Any.
+    return str(
+        SYSTEM_TEMPLATE.render(
+            card=persona.persona_card
+            or f"A {persona.age}-year-old {persona.occupation}.",
+            trust=persona.trust_in_ads,
+            objection_style=persona.objection_style,
+            price_sensitivity=persona.price_sensitivity,
+            brand_loyalty=persona.brand_loyalty,
+            novelty_seeking=persona.novelty_seeking,
+        )
     )
 
 
@@ -212,33 +217,41 @@ def render_stage1(
     event: ExposureEvent,
     source: Persona | None = None,
 ) -> str:
-    return STAGE1_TEMPLATE.render(
-        channel_context=_CHANNEL_CONTEXT.get(
-            stimulus.type, _CHANNEL_CONTEXT["email"]
-        ),
-        social=event.exposure_type == "social",
-        source_desc=_source_desc(source),
-        source_comment=event.source_comment or "thought you might want to see this",
-        exposure_count=event.exposure_count,
-        teaser=stimulus.teaser_text() or stimulus.body_text[:200],
+    return str(
+        STAGE1_TEMPLATE.render(
+            channel_context=_CHANNEL_CONTEXT.get(
+                stimulus.type, _CHANNEL_CONTEXT["email"]
+            ),
+            social=event.exposure_type == "social",
+            source_desc=_source_desc(source),
+            source_comment=event.source_comment or "thought you might want to see this",
+            exposure_count=event.exposure_count,
+            teaser=stimulus.teaser_text() or stimulus.body_text[:200],
+        )
     )
 
 
 def render_stage2(stimulus: Stimulus) -> str:
-    return STAGE2_TEMPLATE.render(
-        teaser=stimulus.teaser_text(),
-        body=stimulus.body_text,
-        visual=stimulus.visual_description,
-        offer=stimulus.offer,
-        price=stimulus.price_shown,
-        cta=stimulus.cta or "(no explicit call to action)",
+    return str(
+        STAGE2_TEMPLATE.render(
+            teaser=stimulus.teaser_text(),
+            body=stimulus.body_text,
+            visual=stimulus.visual_description,
+            offer=stimulus.offer,
+            price=stimulus.price_shown,
+            cta=stimulus.cta or "(no explicit call to action)",
+        )
     )
 
 
 def render_interview(question: str, stimulus: Stimulus | None = None) -> str:
-    return INTERVIEW_TEMPLATE.render(
-        question=question,
-        stimulus=(
-            f"{stimulus.teaser_text()}\n\n{stimulus.body_text}" if stimulus else None
-        ),
+    return str(
+        INTERVIEW_TEMPLATE.render(
+            question=question,
+            stimulus=(
+                f"{stimulus.teaser_text()}\n\n{stimulus.body_text}"
+                if stimulus
+                else None
+            ),
+        )
     )

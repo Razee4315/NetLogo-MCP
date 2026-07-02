@@ -51,7 +51,9 @@ WOM_DELAY_MAX = 5  # scheduled share lands 1..5 ticks later
 class WorldBridge(Protocol):
     """One replicate-run's simulation world."""
 
-    async def setup(self, audience: Audience, stimulus: Stimulus, seed: int) -> None: ...
+    async def setup(
+        self, audience: Audience, stimulus: Stimulus, seed: int
+    ) -> None: ...
     async def step(self) -> int: ...
     async def pending_exposures(self) -> list[ExposureEvent]: ...
     async def apply_decisions(self, decisions: list[Decision]) -> None: ...
@@ -146,7 +148,10 @@ class PythonWorld:
     def _propagate_shares(self) -> None:
         for src in sorted(self.pending_share):
             for nbr in self.audience.edges[src]:
-                if self._receptive(nbr) and self.exposure_count[nbr] < self.frequency_cap:
+                if (
+                    self._receptive(nbr)
+                    and self.exposure_count[nbr] < self.frequency_cap
+                ):
                     delay = 1 + int(self.rng.integers(0, WOM_DELAY_MAX))
                     self.scheduled.append((self._tick + delay, nbr, src))
             self.shared.add(src)
@@ -263,9 +268,7 @@ class NetLogoWorld:
         self._tick = 0
         cp = stimulus.channel_params
 
-        await self._load_model(
-            market_model_code(), market_model_widgets()
-        )
+        await self._load_model(market_model_code(), market_model_widgets())
         # setup-world's clear-all wipes globals, so campaign params are set
         # afterwards via configure-campaign (same command, ordered).
         await self._command(
@@ -290,9 +293,7 @@ class NetLogoWorld:
             if j > i
         ]
         for chunk_start in range(0, len(links), self.CHUNK):
-            await self._command(
-                " ".join(links[chunk_start : chunk_start + self.CHUNK])
-            )
+            await self._command(" ".join(links[chunk_start : chunk_start + self.CHUNK]))
         if audience.size <= 300:
             await self._command(
                 "repeat 30 [ layout-spring turtles links 0.2 4 1 ] "
@@ -336,9 +337,7 @@ class NetLogoWorld:
                 "set exposure-pending? false ]"
             )
         for chunk_start in range(0, len(parts), self.CHUNK):
-            await self._command(
-                " ".join(parts[chunk_start : chunk_start + self.CHUNK])
-            )
+            await self._command(" ".join(parts[chunk_start : chunk_start + self.CHUNK]))
 
     async def state_counts(self) -> dict[str, int]:
         raw = await self._report("state-counts")

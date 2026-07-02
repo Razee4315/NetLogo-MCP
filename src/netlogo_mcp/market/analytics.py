@@ -33,8 +33,15 @@ def _final_counts_per_run(store: EventStore, run_id: str) -> dict[str, int] | No
     last = tm.sort_values("tick").iloc[-1]
     return {
         s: int(last[s])
-        for s in ("unaware", "exposed", "engaged", "clicked", "converted",
-                  "ignored", "annoyed")
+        for s in (
+            "unaware",
+            "exposed",
+            "engaged",
+            "clicked",
+            "converted",
+            "ignored",
+            "annoyed",
+        )
     }
 
 
@@ -114,8 +121,13 @@ def funnel_summary(
 
 # ── Segments ─────────────────────────────────────────────────────────────────
 
-_AGE_BINS = [(0, 24, "≤24"), (25, 34, "25-34"), (35, 44, "35-44"),
-             (45, 54, "45-54"), (55, 200, "55+")]
+_AGE_BINS = [
+    (0, 24, "≤24"),
+    (25, 34, "25-34"),
+    (35, 44, "35-44"),
+    (45, 54, "45-54"),
+    (55, 200, "55+"),
+]
 
 
 def _age_bracket(age: int) -> str:
@@ -212,9 +224,7 @@ def mine_objections(
     run_ids = store.completed_run_ids().get(stimulus_id, [])
     texts = _collect_verbatims(store, run_ids)
     if len(texts) < 4:
-        return [
-            {"theme": t, "count": 1, "quotes": [t]} for t in texts
-        ]
+        return [{"theme": t, "count": 1, "quotes": [t]} for t in texts]
 
     from sklearn.cluster import KMeans
     from sklearn.feature_extraction.text import TfidfVectorizer
@@ -252,9 +262,7 @@ def mine_objections(
 # ── Variant comparison ───────────────────────────────────────────────────────
 
 
-def compare_variants(
-    store: EventStore, audience: Audience
-) -> list[dict[str, Any]]:
+def compare_variants(store: EventStore, audience: Audience) -> list[dict[str, Any]]:
     """Pairwise comparison of variants on audience-level conversion and
     engagement, using the paired-replicate design + two-proportion z-test."""
     from scipy import stats
@@ -281,7 +289,9 @@ def compare_variants(
                 x_b = sum(num(c) for c in cb)
                 p_a, p_b = x_a / max(1, n_a), x_b / max(1, n_b)
                 pooled = (x_a + x_b) / max(1, n_a + n_b)
-                se = np.sqrt(pooled * (1 - pooled) * (1 / max(1, n_a) + 1 / max(1, n_b)))
+                se = np.sqrt(
+                    pooled * (1 - pooled) * (1 / max(1, n_a) + 1 / max(1, n_b))
+                )
                 z = (p_a - p_b) / se if se > 0 else 0.0
                 p_value = float(2 * (1 - stats.norm.cdf(abs(z))))
                 winner = a if p_a > p_b else b if p_b > p_a else "tie"
@@ -372,11 +382,16 @@ def weak_points(
             )
 
     segments = segment_breakdown(store, audience, stimulus_id)
-    styles = [s for s in segments if s["dimension"] == "objection_style" and s["n"] >= 5]
+    styles = [
+        s for s in segments if s["dimension"] == "objection_style" and s["n"] >= 5
+    ]
     if styles:
         worst = min(styles, key=lambda s: s["engaged_rate"])
         best = max(styles, key=lambda s: s["engaged_rate"])
-        if best["engaged_rate"] > 0 and worst["engaged_rate"] < best["engaged_rate"] * 0.5:
+        if (
+            best["engaged_rate"] > 0
+            and worst["engaged_rate"] < best["engaged_rate"] * 0.5
+        ):
             findings.append(
                 f"'{worst['segment']}' personas engage at {worst['engaged_rate']:.0%} "
                 f"vs {best['engaged_rate']:.0%} for '{best['segment']}' — the message "

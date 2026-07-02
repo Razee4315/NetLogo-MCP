@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model version="NetLogo 7.0.3" snapToGrid="false">
+  <code>globals [
+  num-robots
+  num-food
+  pheromone?
+  evap-rate
+  deposit-trail
+  deposit-burst
+  diffuse-rate
+  initial-energy
+  home-base
+  food-collected
+  first-10-tick
+]
+
+breed [ robots robot ]
+breed [ foods   food   ]
+
+robots-own [ energy carrying? ]
+
+patches-own [ pheromone is-home? ]
+
+to setup
+  clear-all
+  resize-world 0 29 0 29
+  set-patch-size 16
+  set num-robots      10
+  set num-food        25
+  set pheromone?      true
+  set evap-rate       0.04
+  set deposit-trail   1.5
+  set deposit-burst   40
+  set diffuse-rate    0.08
+  set initial-energy  250
+  set food-collected  0
+  set first-10-tick   -1
+  ask patches [
+    set pheromone 0
+    set is-home? false
+    set pcolor white
+  ]
+  set home-base patch 15 15
+  ask home-base [ set is-home? true  set pcolor brown ]
+  let placed 0
+  while [ placed &lt; num-food ] [
+    let p one-of patches with [ not is-home? and not any? foods-here ]
+    ask p [
+      sprout-foods 1 [
+        set shape "default"
+        set color green
+        set size 0.9
+      ]
+    ]
+    set placed placed + 1
+  ]
+  create-robots num-robots [
+    move-to home-base
+    set shape "default"
+    set color blue
+    set size 1.0
+    set energy initial-energy
+    set carrying? false
+    rt random 360
+  ]
+  reset-ticks
+end
+
+to go
+  if not any? foods and all? robots [ not carrying? ] [ stop ]
+  ask robots [ step-robot ]
+  if pheromone? [ diffuse-pheromone ]
+  ask patches [
+    set pheromone pheromone * (1 - evap-rate)
+    if pheromone &lt; 0.05 [ set pheromone 0 ]
+  ]
+  recolour
+  if food-collected &gt;= 10 and first-10-tick = -1 [ set first-10-tick ticks ]
+  tick
+  if ticks &gt;= 200 [ stop ]
+end
+
+to step-robot
+  if carrying? [
+    face home-base
+    if not can-move? 1 [ rt 180 ]
+    fd 1
+    if pheromone? and not is-home? [
+      set pheromone pheromone + deposit-trail
+    ]
+    if patch-here = home-base [
+      set carrying? false
+      set color blue
+      set energy initial-energy
+      set food-collected food-collected + 1
+    ]
+    set energy energy - 1
+    stop
+  ]
+  if energy &lt;= 0 [
+    face home-base
+    if not can-move? 1 [ rt 180 ]
+    fd 1
+    if patch-here = home-base [ set energy initial-energy ]
+    stop
+  ]
+  let f one-of foods-here
+  if f != nobody [
+    ask f [ die ]
+    set carrying? true
+    set color yellow
+    if pheromone? [ set pheromone pheromone + deposit-burst ]
+    stop
+  ]
+  ifelse pheromone? and any? neighbors with [ pheromone &gt; 0 ]
+    [ follow-pheromone ]
+    [ wander ]
+  set energy energy - 1
+end
+
+to wander
+  rt (random 60) - 30
+  if not can-move? 1 [ rt 180 ]
+  fd 1
+end
+
+to follow-pheromone
+  let best max-one-of neighbors [ pheromone ]
+  ifelse [pheromone] of best &gt; 0 and random 100 &gt;= 15
+    [ face best  if not can-move? 1 [ rt 180 ]  fd 1 ]
+    [ wander ]
+end
+
+to diffuse-pheromone
+  ask patches [
+    let avg mean [pheromone] of neighbors4
+    set pheromone (1 - diffuse-rate) * pheromone + diffuse-rate * avg
+  ]
+end
+
+to recolour
+  ask patches [
+    if not is-home? [
+      ifelse pheromone &gt; 0
+        [ set pcolor scale-color violet pheromone 0 30 ]
+        [ set pcolor white ]
+    ]
+  ]
+  ask home-base [ set pcolor brown ]
+end
+
+to run-comparison
+  set pheromone? false  setup  while [ ticks &lt; 200 ] [ go ]
+  print (word "Phase A  N=" num-robots "  food=" food-collected "  first-10=" first-10-tick)
+  set pheromone? true   setup  while [ ticks &lt; 200 ] [ go ]
+  print (word "Phase B  N=" num-robots "  food=" food-collected "  first-10=" first-10-tick)
+end</code>
+  <widgets>
+    <view x="210" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="430" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="430" tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16" minPxcor="-16"></view>
+    <button x="10" y="10" width="190" height="45" kind="Observer" forever="false" disableUntilTicks="false" display="Setup">setup</button>
+    <button x="10" y="65" width="190" height="45" kind="Observer" forever="true" disableUntilTicks="true" display="Go">go</button>
+    <monitor x="10" y="130" width="190" height="45" fontSize="11" precision="0" display="Time Steps">ticks</monitor>
+  </widgets>
+  <info><![CDATA[## WHAT IS IT?
+
+A model created via NetLogo MCP Server.]]></info>
+  <turtleShapes>
+    <shape name="default" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="5"></point>
+        <point x="40" y="250"></point>
+        <point x="150" y="205"></point>
+        <point x="260" y="250"></point>
+      </polygon>
+    </shape>
+    <shape name="circle" rotatable="false" editableColorIndex="0">
+      <circle color="-1920102913" filled="true" marked="true" x="0" y="0" diameter="300"></circle>
+    </shape>
+  </turtleShapes>
+  <linkShapes>
+    <shape name="default" curviness="0.0">
+      <lines>
+        <line x="-0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+        <line x="0.0" visible="true">
+          <dash value="1.0"></dash>
+          <dash value="0.0"></dash>
+        </line>
+        <line x="0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+      </lines>
+      <indicator>
+        <shape name="link direction" rotatable="true" editableColorIndex="0">
+          <line endX="90" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+          <line endX="210" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+        </shape>
+      </indicator>
+    </shape>
+  </linkShapes>
+</model>

@@ -71,7 +71,10 @@ def _extract_json(text: str) -> dict[str, Any]:
         end = text.rfind("}")
         if start >= 0 and end > start:
             text = text[start : end + 1]
-    return json.loads(text)
+    parsed = json.loads(text)
+    if not isinstance(parsed, dict):
+        raise ValueError(f"expected a JSON object, got {type(parsed).__name__}")
+    return parsed
 
 
 class OpenAICompatClient:
@@ -144,7 +147,9 @@ class OpenAICompatClient:
                 resp = await self._client.post("/chat/completions", json=body)
                 if resp.status_code == 400 and mode != "none":
                     # Endpoint doesn't support this response_format — degrade.
-                    last_error = RuntimeError(f"400 with format={mode}: {resp.text[:200]}")
+                    last_error = RuntimeError(
+                        f"400 with format={mode}: {resp.text[:200]}"
+                    )
                     continue
                 resp.raise_for_status()
                 data = resp.json()
@@ -225,8 +230,7 @@ class LLMBackend:
             return _extract_json(raw)
         except (json.JSONDecodeError, ValueError):
             fixed = await _call(
-                user
-                + "\n\nYour previous reply was not valid JSON. Reply with ONLY "
+                user + "\n\nYour previous reply was not valid JSON. Reply with ONLY "
                 "the JSON object, no prose, no code fences."
             )
             return _extract_json(fixed)
@@ -267,6 +271,7 @@ class LLMBackend:
             seed,
             max_tokens=500,
         )
+
         # Clamp numerics instead of failing an otherwise-usable response.
         def _clip(v: Any, lo: float, hi: float, default: float) -> float:
             try:
@@ -331,7 +336,9 @@ def _word_overlap(text: str, phrases: list[str]) -> float:
     if not words or not phrases:
         return 0.0
     hits = sum(
-        1 for ph in phrases if any(w in words for w in re.findall(r"[a-z]{4,}", ph.lower()))
+        1
+        for ph in phrases
+        if any(w in words for w in re.findall(r"[a-z]{4,}", ph.lower()))
     )
     return hits / max(1, len(phrases))
 
@@ -395,8 +402,13 @@ class HeuristicBackend:
     ) -> Stage1Decision:
         self.calls += 1
         rng = _rng_for(
-            "s1", self.salt, seed, persona.cache_key(), stimulus.cache_key(),
-            event.exposure_type, event.exposure_count,
+            "s1",
+            self.salt,
+            seed,
+            persona.cache_key(),
+            stimulus.cache_key(),
+            event.exposure_type,
+            event.exposure_count,
         )
         p_open = self._open_probability(persona, stimulus, event)
         teaser = stimulus.teaser_text()
@@ -439,8 +451,10 @@ class HeuristicBackend:
         else:
             interest -= 0.12 * persona.price_sensitivity  # hidden price = distrust
         interest -= 0.15 * _spamminess(body) * (1.0 - persona.trust_in_ads)
-        interest -= 0.10 * persona.brand_loyalty * (
-            1.0 if "competitor" in persona.current_solution else 0.3
+        interest -= (
+            0.10
+            * persona.brand_loyalty
+            * (1.0 if "competitor" in persona.current_solution else 0.3)
         )
         return float(min(1.0, max(0.0, interest)))
 
@@ -463,14 +477,22 @@ class HeuristicBackend:
     ) -> Reaction:
         self.calls += 1
         rng = _rng_for(
-            "s2", self.salt, seed, persona.cache_key(), stimulus.cache_key(),
+            "s2",
+            self.salt,
+            seed,
+            persona.cache_key(),
+            stimulus.cache_key(),
             event.exposure_type,
         )
         interest = self._interest(persona, stimulus)
 
-        p_buy = max(0.0, (interest - 0.55)) * 0.35 * (1.0 - 0.5 * persona.price_sensitivity)
+        p_buy = (
+            max(0.0, (interest - 0.55)) * 0.35 * (1.0 - 0.5 * persona.price_sensitivity)
+        )
         p_click = max(0.0, interest - 0.25) * 0.55
-        p_save = max(0.0, interest - 0.30) * 0.15 * persona.personality.conscientiousness
+        p_save = (
+            max(0.0, interest - 0.30) * 0.15 * persona.personality.conscientiousness
+        )
         p_share = (
             max(0.0, interest - 0.40)
             * 0.4
@@ -529,7 +551,9 @@ class HeuristicBackend:
             sentiment=sentiment,
             trust_delta=float(min(1.0, max(-1.0, sentiment * 0.3))),
             reason=reasons[action],
-            objections=objections if action in ("ignore", "unsubscribe") else objections[:1],
+            objections=objections
+            if action in ("ignore", "unsubscribe")
+            else objections[:1],
             would_share_with=would_share,  # type: ignore[arg-type]
         )
 
@@ -550,7 +574,7 @@ class HeuristicBackend:
             else ""
         )
         return (
-            f"{style}{pains} Asking me \"{question.strip()}\" — my honest answer is "
+            f'{style}{pains} Asking me "{question.strip()}" — my honest answer is '
             "that it depends on whether it respects my time and is upfront about cost. "
             "(Note: heuristic backend — set SYNTH_LLM_MODE=live for real persona interviews.)"
         )
@@ -721,8 +745,13 @@ class CognitionEngine:
                         self.cache.put(key, dist)
         else:
             self.cache_hits += 1
-        rng = _rng_for("draw", self.seed, event.agent_index, stimulus.cache_key(),
-                       self._context_hash(event))
+        rng = _rng_for(
+            "draw",
+            self.seed,
+            event.agent_index,
+            stimulus.cache_key(),
+            self._context_hash(event),
+        )
         s1, r2 = _deserialize_pair(dist[int(rng.integers(0, len(dist)))])
         return s1, r2, calls == 0, calls
 
@@ -730,15 +759,11 @@ class CognitionEngine:
 
     async def decide(self, event: ExposureEvent, stimulus: Stimulus) -> Decision:
         persona = self._persona(event.agent_index)
-        use_individual = (
-            event.agent_index in self._full_idx or persona.archetype < 0
-        )
+        use_individual = event.agent_index in self._full_idx or persona.archetype < 0
         if use_individual:
             s1, r2, cached, calls = await self._individual(persona, stimulus, event)
         else:
-            s1, r2, cached, calls = await self._from_archetype(
-                persona, stimulus, event
-            )
+            s1, r2, cached, calls = await self._from_archetype(persona, stimulus, event)
         self.llm_calls += calls
         state = resolve_state(s1, r2)
         will_share = bool(
@@ -761,9 +786,7 @@ class CognitionEngine:
     async def decide_batch(
         self, events: list[ExposureEvent], stimulus: Stimulus
     ) -> list[Decision]:
-        return list(
-            await asyncio.gather(*(self.decide(ev, stimulus) for ev in events))
-        )
+        return list(await asyncio.gather(*(self.decide(ev, stimulus) for ev in events)))
 
     async def interview(
         self, persona_index: int, question: str, stimulus: Stimulus | None = None

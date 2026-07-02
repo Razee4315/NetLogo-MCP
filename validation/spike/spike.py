@@ -56,8 +56,10 @@ SPEC = AudienceSpec(
 
 async def main() -> None:
     cfg = get_llm_config()
-    print(f"cognition mode: {cfg.mode}"
-          + (f" ({cfg.model} @ {cfg.base_url})" if cfg.mode == "live" else ""))
+    print(
+        f"cognition mode: {cfg.mode}"
+        + (f" ({cfg.model} @ {cfg.base_url})" if cfg.mode == "live" else "")
+    )
 
     audience = assign_archetypes(generate_audience(SPEC))
     engine = CognitionEngine(audience, fidelity="full", use_cache=False)
@@ -70,9 +72,13 @@ async def main() -> None:
     decisions = await engine.decide_batch(events, EMAIL)
     elapsed = time.time() - t0
 
-    print(f"\n{len(decisions)} reactions in {elapsed:.1f}s "
-          f"({engine.llm_calls} cognition calls)\n")
-    header = f"{'persona':>18} {'style':>14} {'trust':>5} {'gate':>12} {'action':>15}  why"
+    print(
+        f"\n{len(decisions)} reactions in {elapsed:.1f}s "
+        f"({engine.llm_calls} cognition calls)\n"
+    )
+    header = (
+        f"{'persona':>18} {'style':>14} {'trust':>5} {'gate':>12} {'action':>15}  why"
+    )
     print(header)
     print("-" * len(header))
     for d in decisions:
@@ -97,20 +103,25 @@ async def main() -> None:
         print(f"  {style:>14}: {sum(flags)}/{len(flags)} opened")
 
     paths = {
-        (d.stage1.action, d.reaction.action if d.reaction else "-")
-        for d in decisions
+        (d.stage1.action, d.reaction.action if d.reaction else "-") for d in decisions
     }
     print("\n--- GO/NO-GO ---")
-    print(f"[{'PASS' if len(paths) >= 3 else 'FAIL'}] "
-          f"reaction diversity: {len(paths)} distinct decision paths "
-          f"({sorted(paths)})")
+    print(
+        f"[{'PASS' if len(paths) >= 3 else 'FAIL'}] "
+        f"reaction diversity: {len(paths)} distinct decision paths "
+        f"({sorted(paths)})"
+    )
     homogeneous = opens in (0, len(decisions))
-    print(f"[{'PASS' if not homogeneous else 'FAIL'}] "
-          "population not homogeneous at the attention gate")
+    print(
+        f"[{'PASS' if not homogeneous else 'FAIL'}] "
+        "population not homogeneous at the attention gate"
+    )
     if cfg.mode == "live":
         rate = engine.llm_calls / max(0.1, elapsed)
-        print(f"[INFO] throughput: {rate:.2f} cognition calls/s "
-              f"-> a 500-persona full-fidelity run ≈ {500 * 1.3 / max(rate, 0.01) / 60:.0f} min")
+        print(
+            f"[INFO] throughput: {rate:.2f} cognition calls/s "
+            f"-> a 500-persona full-fidelity run ≈ {500 * 1.3 / max(rate, 0.01) / 60:.0f} min"
+        )
 
 
 if __name__ == "__main__":

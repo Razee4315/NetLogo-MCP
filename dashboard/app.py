@@ -38,9 +38,7 @@ if not dbs:
     )
     st.stop()
 
-campaign_file = st.sidebar.selectbox(
-    "Campaign", dbs, format_func=lambda p: p.stem
-)
+campaign_file = st.sidebar.selectbox("Campaign", dbs, format_func=lambda p: p.stem)
 store = EventStore(campaign_file.stem, path=str(campaign_file))
 runs = store.runs_df()
 if runs.empty:
@@ -87,8 +85,13 @@ for vid, v in funnel.items():
     for stage in ("reach", "gate", "click", "convert", "annoyance"):
         s = v["metrics"][stage]
         rows.append(
-            {"variant": vid, "stage": stage, "rate": 100 * s["mean"],
-             "lo": 100 * s["lo"], "hi": 100 * s["hi"]}
+            {
+                "variant": vid,
+                "stage": stage,
+                "rate": 100 * s["mean"],
+                "lo": 100 * s["lo"],
+                "hi": 100 * s["hi"],
+            }
         )
 funnel_df = pd.DataFrame(rows)
 st.bar_chart(funnel_df, x="stage", y="rate", color="variant", height=320)
@@ -109,9 +112,7 @@ with left:
     st.subheader("Segments")
     seg = pd.DataFrame(segment_breakdown(store, audience, variant))
     if not seg.empty:
-        dim = st.radio(
-            "dimension", sorted(seg["dimension"].unique()), horizontal=True
-        )
+        dim = st.radio("dimension", sorted(seg["dimension"].unique()), horizontal=True)
         view = seg[seg["dimension"] == dim].drop(columns=["dimension"])
         st.dataframe(
             view.style.format(
@@ -152,12 +153,22 @@ st.header("Decision log")
 decisions = store.decisions_df(run_ids)
 if not decisions.empty:
     state_filter = st.multiselect(
-        "states", sorted(decisions["state"].unique()),
+        "states",
+        sorted(decisions["state"].unique()),
         default=sorted(decisions["state"].unique()),
     )
     view = decisions[decisions["state"].isin(state_filter)][
-        ["tick", "persona_id", "exposure_type", "stage1_action", "action",
-         "state", "sentiment", "reason", "objections"]
+        [
+            "tick",
+            "persona_id",
+            "exposure_type",
+            "stage1_action",
+            "action",
+            "state",
+            "sentiment",
+            "reason",
+            "objections",
+        ]
     ]
     st.dataframe(view, use_container_width=True, height=380)
     st.download_button(

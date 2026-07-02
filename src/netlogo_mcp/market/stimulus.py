@@ -116,7 +116,10 @@ def stimulus_from_html(
         candidates: list[str] = []
         for el in soup.find_all(["button", "a"]):
             txt = el.get_text(" ", strip=True)
-            classes = " ".join(el.get("class", []))
+            raw_class: Any = el.get("class") or []
+            classes = (
+                " ".join(raw_class) if isinstance(raw_class, list) else str(raw_class)
+            )
             if not txt or len(txt) > 60:
                 continue
             if el.name == "button" or re.search(r"btn|button|cta", classes, re.I):
@@ -199,8 +202,7 @@ def load_saved_campaign(name: str) -> CampaignSpec:
     path = get_campaigns_dir() / f"{_slug(name)}.json"
     if not path.is_file():
         raise FileNotFoundError(
-            f"campaign '{name}' not found — expected {path}. "
-            "Use create_campaign first."
+            f"campaign '{name}' not found — expected {path}. Use create_campaign first."
         )
     return CampaignSpec(**json.loads(path.read_text(encoding="utf-8")))
 

@@ -161,9 +161,7 @@ class Persona(BaseModel):
 class NetworkSpec(BaseModel):
     """Social-graph topology for the audience."""
 
-    topology: Literal["watts-strogatz", "barabasi-albert", "random"] = (
-        "watts-strogatz"
-    )
+    topology: Literal["watts-strogatz", "barabasi-albert", "random"] = "watts-strogatz"
     k: int = Field(8, ge=2, le=64, description="mean degree (WS) / 2*m (BA)")
     rewire: float = Field(0.1, ge=0.0, le=1.0, description="WS rewiring prob")
     degree_by_influence: bool = Field(

@@ -108,8 +108,10 @@ async def main() -> None:
 
     y = np.array(cumulative_reached, dtype=float)
     t = np.arange(len(y), dtype=float)
-    print(f"ticks: {len(y)}, final reached: {y[-1]:.0f}/{audience.size}, "
-          f"exposures: {direct} direct + {social} social")
+    print(
+        f"ticks: {len(y)}, final reached: {y[-1]:.0f}/{audience.size}, "
+        f"exposures: {direct} direct + {social} social"
+    )
     if len(y) < 8:
         print("\n--- VERDICT ---")
         print("[FAIL] cascade died immediately — no curve to fit")
@@ -119,7 +121,9 @@ async def main() -> None:
 
     try:
         (k, m, r), _ = curve_fit(
-            logistic, t, y,
+            logistic,
+            t,
+            y,
             p0=[y[-1], len(y) / 3, 0.3],
             maxfev=20000,
         )
@@ -136,8 +140,10 @@ async def main() -> None:
     print(f"logistic fit R² = {r2:.3f} (ceiling k={k:.0f}, midpoint t={m:.1f})")
     print("\n--- VERDICT ---")
     print(f"[{'PASS' if r2 >= 0.95 else 'FAIL'}] S-curve shape (R² >= 0.95)")
-    print(f"[{'PASS' if wom_majority else 'FAIL'}] "
-          f"word-of-mouth dominates ({social} social vs {direct} direct)")
+    print(
+        f"[{'PASS' if wom_majority else 'FAIL'}] "
+        f"word-of-mouth dominates ({social} social vs {direct} direct)"
+    )
     print(f"[{'PASS' if grew_after_seed else 'FAIL'}] diffusion beyond the seed group")
 
 

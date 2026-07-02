@@ -116,8 +116,7 @@ async def generate_audience(spec_yaml: str, ctx: Context) -> str:
         )
     lines.append("")
     lines.append(
-        "Next: `create_campaign` with `audience: "
-        f"{spec.name}`, then `run_campaign`."
+        f"Next: `create_campaign` with `audience: {spec.name}`, then `run_campaign`."
     )
     return "\n".join(lines)
 
@@ -221,9 +220,7 @@ async def list_campaigns(ctx: Context) -> str:
         return "No campaigns yet — use create_campaign."
     lines = ["| name | audience | variants |", "| --- | --- | --- |"]
     for c in items:
-        lines.append(
-            f"| {c['name']} | {c['audience']} | {', '.join(c['variants'])} |"
-        )
+        lines.append(f"| {c['name']} | {c['audience']} | {', '.join(c['variants'])} |")
     return "\n".join(lines)
 
 
@@ -378,8 +375,7 @@ async def get_campaign_report(campaign_name: str, ctx: Context) -> str:
     finally:
         store.close()
     return (
-        result["markdown"]
-        + f"\n\n_HTML report with charts: `{result['html_path']}`_"
+        result["markdown"] + f"\n\n_HTML report with charts: `{result['html_path']}`_"
     )
 
 
@@ -439,9 +435,7 @@ async def interview_persona(
     engine = CognitionEngine(audience)
 
     if persona_id is not None:
-        indices = [
-            i for i, p in enumerate(audience.personas) if p.id == persona_id
-        ]
+        indices = [i for i, p in enumerate(audience.personas) if p.id == persona_id]
         if not indices:
             raise ToolError(f"persona '{persona_id}' not found in {audience_name}")
     else:
@@ -461,8 +455,7 @@ async def interview_persona(
         )
     mode = get_llm_config().mode
     note = (
-        "\n\n_Heuristic backend — interviews get much richer with "
-        "SYNTH_LLM_MODE=live._"
+        "\n\n_Heuristic backend — interviews get much richer with SYNTH_LLM_MODE=live._"
         if mode == "mock"
         else ""
     )
@@ -505,9 +498,7 @@ async def calibrate(
         raise ToolError(f"No completed runs for '{campaign_name}'.")
     # Average raw stage rates across variants for the fit.
     simulated = {
-        stage: float(
-            sum(v["raw"][stage] for v in funnel.values()) / len(funnel)
-        )
+        stage: float(sum(v["raw"][stage] for v in funnel.values()) / len(funnel))
         for stage in ("gate", "click", "convert")
     }
 
@@ -535,9 +526,7 @@ async def calibrate(
         "| --- | --- | --- |",
     ]
     for stage in ("gate", "click", "convert"):
-        lines.append(
-            f"| {stage} | {simulated[stage]:.1%} | {fitted[stage]:.1%} |"
-        )
+        lines.append(f"| {stage} | {simulated[stage]:.1%} | {fitted[stage]:.1%} |")
     lines.append("\nRe-run get_campaign_report to see calibrated numbers.")
     return "\n".join(lines)
 

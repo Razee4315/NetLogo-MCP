@@ -1,0 +1,580 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model version="NetLogo 7.0.3" snapToGrid="false">
+  <code>;; =====================================================================
+;; EBOLA (BUNDIBUGYO) AGENT-BASED MODEL — MONGBWALU / BUNIA, ITURI, DRC
+;; Information, Trust &amp; Misinformation module + SEIHR/D disease dynamics
+;; ---------------------------------------------------------------------
+;; Standalone NetLogo model for the WHO / ASSOCC-Ebola project.
+;; Shows how (mis)information and trust drive health behaviour
+;; (precautions, hospital-seeking, safe vs unsafe burial, care delay)
+;; and therefore the epidemic. Grounded in the 2026 BVD outbreak dataset.
+;;
+;; Ebola is a CLOSE-CONTACT disease: it spreads through households,
+;; caregiving, funerals, and health-care settings — NOT casual crowds.
+;;
+;; Author: Saqlain Abbas | Built with Claude (Opus 4.8) via NetLogo MCP
+;; 1 tick = 1 day.
+;; =====================================================================
+
+breed [people person]
+
+globals [
+  cum-cases               ;; cumulative infections
+  cum-deaths              ;; cumulative Ebola deaths
+  cum-safe-burials        ;; cumulative safe &amp; dignified burials
+  cum-unsafe-burials      ;; cumulative unsafe (traditional) burials
+  beds-used               ;; current occupied treatment-centre beds
+  zone-names              ;; list of location/gathering-point names
+
+  ;; epidemiological constants (set in setup; tunable / data-grounded)
+  base-hospitalisation    ;; baseline propensity to seek hospital care
+  cfr-hospital            ;; case-fatality if hospitalised
+  cfr-nonhospital         ;; case-fatality if NOT hospitalised
+  base-safe-burial        ;; baseline propensity for a safe burial
+  funeral-transmission    ;; exposure prob per susceptible funeral attendee
+  ipc-quality             ;; hospital infection-prevention quality (0..1)
+  burial-delay            ;; days a body stays infectious before burial
+  precaution-factor       ;; transmission multiplier when a person takes precautions
+]
+
+patches-own [ zone-type ] ;; "mine" "market" "church" "hospital" "home" "cemetery"
+
+people-own [
+  ;; ---- disease ----
+  infection-status        ;; SEIHR/D state machine (see progress-disease)
+  disease-timer           ;; days remaining in the current timed state
+  alive?                  ;; living agent?
+
+  ;; ---- demographics ----
+  ethnicity               ;; "Lendu" / "Hema"
+  occupation              ;; miner / trader / hcw / caregiver / child / farmer
+  age-group               ;; "child" / "adult"
+  household-id            ;; shared by household members
+  current-zone            ;; gathering point the agent is at THIS day
+
+  ;; ---- beliefs (the information module) ----
+  belief-ebola-real?      ;; false = "it's a conspiracy / it's typhoid"
+  belief-hospital-helps?  ;; false = "the hospital is where they kill you"
+  belief-safe-burial-ok?  ;; false = "we must wash &amp; touch the body ourselves"
+  awareness               ;; 0..1 amount of correct information held
+
+  ;; ---- trust (0..1 per source) ----
+  trust-health            ;; trust in health teams / ETCs
+  trust-government        ;; trust in government / authorities
+  trust-radio             ;; trust in radio (e.g. Radio Okapi)
+  trust-leader            ;; trust in religious / ethnic leaders
+
+  ;; ---- emotion / social roles ----
+  fear-level              ;; 0..1 rises with nearby deaths
+  is-rumor-carrier?       ;; currently spreading misinformation
+  is-survivor-ambassador? ;; recovered + spreading correct information
+]
+
+;; =====================================================================
+;; SETUP
+;; =====================================================================
+to setup
+  clear-all
+  set-default-constants
+  set zone-names ["mine" "market" "church" "hospital" "home" "cemetery"]
+  setup-zones
+  setup-people
+  setup-network
+  seed-infections
+  reset-ticks
+end
+
+;; Epidemiological constants. Tunable; defaults reflect BVD 2026 data.
+to set-default-constants
+  set base-hospitalisation 0.80
+  set cfr-hospital         0.40
+  set cfr-nonhospital      0.80
+  set base-safe-burial     0.50
+  set funeral-transmission 0.18
+  set ipc-quality          0.70
+  set burial-delay         3
+  set precaution-factor    0.30   ;; precautions cut transmission to 30%
+end
+
+;; Paint the town: a stylised Mongbwalu layout of gathering points.
+to setup-zones
+  ask patches [ set zone-type "home" set pcolor 38 ]            ;; residential
+  ask patches with [pxcor &lt; min-pxcor + world-width * 0.22]
+    [ set zone-type "mine"   set pcolor 32 ]                    ;; gold mine (left)
+  ask patches with [pxcor &gt; max-pxcor - world-width * 0.22 and pycor &gt; 0]
+    [ set zone-type "hospital" set pcolor 87 ]                  ;; ETC / hospital (top-right)
+  ask patches with [abs pxcor &lt; world-width * 0.16 and abs pycor &lt; world-height * 0.16]
+    [ set zone-type "market" set pcolor 45 ]                    ;; market (centre)
+  ask patches with [pycor &gt; max-pycor - world-height * 0.16 and abs pxcor &lt; world-width * 0.18]
+    [ set zone-type "church" set pcolor 9.9 ]                   ;; church (top)
+  ask patches with [pycor &lt; min-pycor + world-height * 0.16]
+    [ set zone-type "cemetery" set pcolor 4 ]                   ;; cemetery (bottom)
+  label-zones
+end
+
+to label-zones
+  foreach zone-names [ z -&gt;
+    let ps patches with [zone-type = z]
+    if any? ps [ ask max-one-of ps [pycor] [ set plabel z set plabel-color 0 ] ]
+  ]
+end
+
+to setup-people
+  create-people num-people [
+    set shape "default"
+    set size 1.2
+    set alive? true
+    set infection-status "susceptible"
+    set disease-timer 0
+
+    ;; demographics
+    set ethnicity ifelse-value (random-float 100 &lt; pct-lendu) ["Lendu"] ["Hema"]
+    set occupation pick-occupation
+    set age-group ifelse-value (occupation = "child") ["child"] ["adult"]
+    set household-id random (num-people / 6)   ;; ~6 people per household
+    move-to-zone "home"
+
+    ;; ---- beliefs, seeded from the misinformation level ----
+    set belief-ebola-real?     (random-float 1 &gt; initial-misinformation)
+    set belief-hospital-helps? (random-float 1 &gt; initial-misinformation * 0.8)
+    set belief-safe-burial-ok? (random-float 1 &lt; 0.35)   ;; ~65% prefer unsafe (data: 40-70%)
+    set awareness ifelse-value belief-ebola-real? [0.5] [0.1]
+
+    ;; ---- trust (institutions low, leaders/radio higher: per docs) ----
+    set trust-health     0.10 + random-float 0.40
+    set trust-government  random-float 0.30
+    set trust-radio      0.30 + random-float 0.40
+    set trust-leader     0.60 + random-float 0.30
+
+    ;; ---- emotion / roles ----
+    set fear-level 0
+    set is-rumor-carrier? (not belief-ebola-real? and random-float 1 &lt; 0.6)
+    set is-survivor-ambassador? false
+    set color status-color
+  ]
+end
+
+to-report pick-occupation
+  let r random-float 1
+  if r &lt; 0.30 [ report "child" ]
+  if r &lt; 0.55 [ report "miner" ]
+  if r &lt; 0.70 [ report "caregiver" ]
+  if r &lt; 0.80 [ report "trader" ]
+  if r &lt; 0.95 [ report "farmer" ]
+  report "hcw"
+end
+
+;; Social network — biased to same ethnicity. Ties carry information
+;; AND close-contact virus (caregivers, kin).
+to setup-network
+  ask people [
+    let pool other people with [ethnicity = [ethnicity] of myself]
+    if not any? pool [ set pool other people ]
+    let k min (list 4 (count pool))
+    if k &gt; 0 [ create-links-with n-of k pool ]
+  ]
+  ask links [ set color 9.5 hide-link ]
+end
+
+to seed-infections
+  ask n-of initial-infected people [ become-exposed ]
+  recolor
+end
+
+;; =====================================================================
+;; MAIN LOOP
+;; =====================================================================
+to go
+  if not any? people with [infectious-or-incubating?] [ stop ]
+  ask people with [alive?] [ update-information ]
+  assign-activities
+  spread-contagion
+  advance-disease
+  recolor
+  tick
+end
+
+;; =====================================================================
+;; INFORMATION &amp; TRUST MODULE  (the centrepiece)
+;; =====================================================================
+to update-information
+  ;; (1) RADIO broadcast (Radio Okapi) — wide, cheap, correct info
+  if radio-campaign? and random-float 1 &lt; (0.15 * rcce-intensity) [
+    if random-float 1 &lt; trust-radio [
+      set belief-ebola-real? true
+      set belief-hospital-helps? true
+      set awareness min (list 1 (awareness + 0.10))
+      set trust-health min (list 1 (trust-health + 0.02))
+    ]
+  ]
+
+  ;; (2) LEADER engagement — religious/ethnic leaders are highly trusted.
+  if engage-leaders? and random-float 1 &lt; (0.12 * rcce-intensity) [
+    if random-float 1 &lt; trust-leader [
+      set belief-ebola-real? true
+      set belief-safe-burial-ok? true
+      set awareness min (list 1 (awareness + 0.08))
+      set trust-health min (list 1 (trust-health + 0.03))
+    ]
+  ]
+
+  ;; (3) PEER misinformation spread along the social network.
+  if any? link-neighbors with [is-rumor-carrier?] [
+    if random-float 1 &lt; (rumor-spread-rate * (1 - trust-health)) [
+      set belief-ebola-real? false
+      set belief-hospital-helps? false
+      set is-rumor-carrier? true
+    ]
+  ]
+
+  ;; (4) PEER correct-info spread from aware neighbours / survivor ambassadors.
+  if any? link-neighbors with [is-survivor-ambassador? or awareness &gt; 0.6] [
+    if random-float 1 &lt; (0.15 + 0.30 * trust-radio) [
+      set belief-ebola-real? true
+      set belief-hospital-helps? true
+      set awareness min (list 1 (awareness + 0.05))
+      if is-rumor-carrier? and random-float 1 &lt; 0.3 [ set is-rumor-carrier? false ]
+    ]
+  ]
+
+  ;; (5) FEAR dynamics — rises near recent deaths, decays over time.
+  let nearby-deaths count people in-radius 3 with [infection-status = "dead-infectious"]
+  set fear-level min (list 1 (fear-level + 0.05 * nearby-deaths))
+  set fear-level fear-level * 0.97
+end
+
+;; Does this agent take protective precautions (avoid touching the sick,
+;; hygiene, distancing)? Driven by correct belief + awareness OR by fear.
+to-report takes-precautions?
+  report (belief-ebola-real? and awareness &gt; 0.5) or (fear-level &gt; 0.5)
+end
+
+;; =====================================================================
+;; MOVEMENT — daily gathering point (for display + crowding factor)
+;; =====================================================================
+to assign-activities
+  ask people with [alive?] [
+    ifelse infection-status = "hospitalised" [
+      set current-zone "hospital"
+    ] [
+      ifelse (fear-level &gt; 0.5 and random-float 1 &lt; fear-level) [
+        set current-zone "home"
+      ] [
+        set current-zone activity-zone
+      ]
+      ;; CONTACT TRACING: a found fraction of symptomatic cases is isolated.
+      ;; Capped low to reflect the real ~21% follow-up reached in the field.
+      if contact-tracing? and (infection-status = "stage1" or infection-status = "stage2")
+         and random-float 1 &lt; (0.21 * rcce-intensity) [
+        set current-zone "hospital"
+      ]
+    ]
+    move-to-zone current-zone
+  ]
+end
+
+to-report activity-zone
+  if (ticks mod 7 = 0) and random-float 1 &lt; 0.5 [ report "church" ]
+  let r random-float 1
+  if occupation = "miner"     [ report ifelse-value (r &lt; 0.8) ["mine"]   ["market"] ]
+  if occupation = "trader"    [ report ifelse-value (r &lt; 0.7) ["market"] ["home"] ]
+  if occupation = "hcw"       [ report "hospital" ]
+  if occupation = "caregiver" [ report ifelse-value (r &lt; 0.7) ["home"]   ["market"] ]
+  if occupation = "child"     [ report ifelse-value (r &lt; 0.5) ["home"]   ["church"] ]
+  if occupation = "farmer"    [ report ifelse-value (r &lt; 0.6) ["home"]   ["market"] ]
+  report "home"
+end
+
+to move-to-zone [z]
+  let ps patches with [zone-type = z]
+  if any? ps [ move-to one-of ps ]
+end
+
+;; =====================================================================
+;; CONTAGION — Ebola spreads through CLOSE contact, not casual crowds.
+;; Precautions (driven by the information module) cut transmission.
+;; =====================================================================
+to spread-contagion
+  ask people with [infectiousness &gt; 0 and infection-status != "hospitalised"] [
+    let inf infectiousness
+    let zfac density-of current-zone
+    ask daily-contacts with [infection-status = "susceptible" and alive?] [
+      let prot ifelse-value takes-precautions? [precaution-factor] [1.0]
+      if random-float 1 &lt; (base-transmission * inf * zfac * prot) [ become-exposed ]
+    ]
+  ]
+  ;; Hospitalised cases can still infect health workers when IPC is imperfect.
+  ask people with [infection-status = "hospitalised"] [
+    let hcws people with [occupation = "hcw" and infection-status = "susceptible" and alive?]
+    if any? hcws [
+      ask n-of (min (list 2 (count hcws))) hcws [
+        if random-float 1 &lt; (base-transmission * (1 - ipc-quality)) [ become-exposed ]
+      ]
+    ]
+  ]
+end
+
+;; Close contacts of an infectious agent: household + a few social ties.
+to-report daily-contacts
+  let hh other people with [household-id = [household-id] of myself and alive?]
+  let ties link-neighbors with [alive?]
+  let some-ties ifelse-value (count ties &gt; 3) [n-of 3 ties] [ties]
+  report (turtle-set hh some-ties)
+end
+
+to-report infectiousness
+  if infection-status = "stage1"           [ report 0.3 ]
+  if infection-status = "stage2"           [ report 0.8 ]
+  if infection-status = "non-hospitalised" [ report 1.0 ]
+  if infection-status = "dead-infectious"  [ report 0.9 ]   ;; body at home pre-burial
+  report 0
+end
+
+;; Crowding / contact-intensity factor by the infector's location.
+to-report density-of [z]
+  if z = "mine"     [ report 1.2 ]
+  if z = "market"   [ report 1.1 ]
+  if z = "church"   [ report 1.0 ]
+  if z = "hospital" [ report 0.6 ]
+  if z = "home"     [ report 1.0 ]
+  if z = "cemetery" [ report 0.5 ]
+  report 1.0
+end
+
+;; =====================================================================
+;; DISEASE — SEIHR/D finite state machine
+;; =====================================================================
+to advance-disease
+  ask people with [not member? infection-status ["susceptible" "recovered" "removed"]] [
+    set disease-timer disease-timer - 1
+    if disease-timer &lt;= 0 [ progress-disease ]
+  ]
+end
+
+to progress-disease
+  if infection-status = "exposed" [
+    set infection-status "stage1"
+    set disease-timer 2
+    stop
+  ]
+  if infection-status = "stage1" [
+    set infection-status "stage2"
+    set disease-timer care-seeking-delay
+    stop
+  ]
+  if infection-status = "stage2" [
+    ifelse decide-hospital? and beds-used &lt; hospital-capacity [
+      set infection-status "hospitalised"
+      set beds-used beds-used + 1
+      set disease-timer max (list 3 round (random-normal 10 2))
+    ] [
+      set infection-status "non-hospitalised"
+      set disease-timer max (list 4 round (random-normal 12 3))
+    ]
+    stop
+  ]
+  if infection-status = "hospitalised" [
+    set beds-used beds-used - 1
+    ifelse random-float 1 &lt; cfr-hospital [ die-from-ebola ] [ recover ]
+    stop
+  ]
+  if infection-status = "non-hospitalised" [
+    ifelse random-float 1 &lt; cfr-nonhospital [ die-from-ebola ] [ recover ]
+    stop
+  ]
+  if infection-status = "dead-infectious" [
+    ifelse decide-safe-burial? [
+      set infection-status "safe-burial"
+      set cum-safe-burials cum-safe-burials + 1
+    ] [
+      set infection-status "unsafe-burial"
+      set cum-unsafe-burials cum-unsafe-burials + 1
+      hold-funeral
+    ]
+    set disease-timer 1
+    stop
+  ]
+  if member? infection-status ["safe-burial" "unsafe-burial"] [
+    set infection-status "removed"
+    stop
+  ]
+end
+
+;; Care-seeking delay: disbelief and fear make people wait longer.
+to-report care-seeking-delay
+  let d 1
+  if not belief-ebola-real? [ set d d + 3 ]
+  set d d + round (3 * fear-level)
+  report d
+end
+
+;; Probability of choosing hospital care — key behaviour hook #1.
+to-report decide-hospital?
+  let p base-hospitalisation * trust-health
+  set p p * (ifelse-value belief-hospital-helps? [1] [0.3])
+  if not belief-ebola-real? [ set p p * 0.5 ]
+  set p p * (1 - 0.5 * fear-level)
+  report random-float 1 &lt; p
+end
+
+;; Probability of a safe &amp; dignified burial — key behaviour hook #2.
+to-report decide-safe-burial?
+  let p base-safe-burial * trust-health
+  set p p * (ifelse-value belief-safe-burial-ok? [1] [0.2])
+  if safe-burial-program? [ set p p + 0.40 * rcce-intensity ]
+  report random-float 1 &lt; min (list 1 p)
+end
+
+;; Unsafe funeral — attendees risk exposure; precautions reduce it.
+to hold-funeral
+  let mourners (turtle-set link-neighbors
+                          (other people with [household-id = [household-id] of myself]))
+  ask mourners with [alive? and infection-status = "susceptible"] [
+    let prot ifelse-value takes-precautions? [precaution-factor] [1.0]
+    if random-float 1 &lt; (funeral-transmission * prot) [ become-exposed ]
+  ]
+end
+
+;; =====================================================================
+;; STATE TRANSITION HELPERS
+;; =====================================================================
+to become-exposed
+  set infection-status "exposed"
+  set disease-timer max (list 2 round (random-normal 6 2))
+  set cum-cases cum-cases + 1
+end
+
+to die-from-ebola
+  set infection-status "dead-infectious"
+  set alive? false
+  set disease-timer burial-delay
+  set cum-deaths cum-deaths + 1
+  move-to-zone "home"
+end
+
+to recover
+  set infection-status "recovered"
+  set alive? true
+  if random-float 1 &lt; (0.2 + 0.4 * trust-health) [ set is-survivor-ambassador? true ]
+  set is-rumor-carrier? false
+end
+
+;; =====================================================================
+;; DISPLAY + REPORTERS
+;; =====================================================================
+to recolor
+  ask people [ set color status-color ]
+end
+
+to-report status-color
+  if infection-status = "susceptible"      [ report green ]
+  if infection-status = "exposed"          [ report yellow ]
+  if infection-status = "stage1"           [ report orange ]
+  if infection-status = "stage2"           [ report red ]
+  if infection-status = "non-hospitalised" [ report 13 ]
+  if infection-status = "hospitalised"     [ report white ]
+  if infection-status = "dead-infectious"  [ report black ]
+  if infection-status = "recovered"        [ report sky ]
+  report 5
+end
+
+to-report infectious-or-incubating?
+  report member? infection-status
+    ["exposed" "stage1" "stage2" "non-hospitalised" "hospitalised" "dead-infectious"]
+end
+
+to-report active-infections
+  report count people with [infectious-or-incubating?]
+end
+
+to-report pct-believe-real
+  report ifelse-value (count people &gt; 0)
+    [100 * count people with [belief-ebola-real?] / count people] [0]
+end
+
+to-report current-cfr
+  report ifelse-value (cum-cases &gt; 0) [precision (100 * cum-deaths / cum-cases) 1] [0]
+end
+
+to-report attack-rate
+  report ifelse-value (count people &gt; 0) [precision (100 * cum-cases / count people) 1] [0]
+end
+
+;; Re-seed a wave of misinformation (button: study a rumour shock).
+to seed-rumor-wave
+  ask n-of (max (list 1 round (count people * 0.10))) people [
+    set is-rumor-carrier? true
+    set belief-ebola-real? false
+    set belief-hospital-helps? false
+  ]
+end</code>
+  <widgets>
+    <view x="1010" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-24" height="490" showTickCounter="true" patchSize="10.0" fontSize="10" wrappingAllowedY="true" width="490" tickCounterLabel="ticks" maxPycor="24" updateMode="1" maxPxcor="24" minPxcor="-24" />
+    <button x="10" y="10" width="190" height="45" kind="Observer" forever="false" disableUntilTicks="false" display="setup">setup</button>
+    <button x="10" y="65" width="190" height="45" kind="Observer" forever="true" disableUntilTicks="false" display="go">go</button>
+    <button x="10" y="120" width="190" height="45" kind="Observer" forever="false" disableUntilTicks="false" display="step">go</button>
+    <button x="10" y="175" width="190" height="45" kind="Observer" forever="false" disableUntilTicks="false" display="trigger rumor wave">seed-rumor-wave</button>
+    <slider x="10" y="230" width="190" height="50" display="num-people" variable="num-people" min="200.0" max="3000.0" default="800.0" step="100.0" direction="Horizontal" />
+    <slider x="10" y="290" width="190" height="50" display="initial-infected" variable="initial-infected" min="1.0" max="50.0" default="5.0" step="1.0" direction="Horizontal" />
+    <slider x="10" y="350" width="190" height="50" display="pct-lendu" variable="pct-lendu" min="0.0" max="100.0" default="60.0" step="5.0" direction="Horizontal" units="%" />
+    <slider x="210" y="10" width="190" height="50" display="initial-misinformation" variable="initial-misinformation" min="0.0" max="1.0" default="0.5" step="0.05" direction="Horizontal" />
+    <slider x="210" y="70" width="190" height="50" display="rumor-spread-rate" variable="rumor-spread-rate" min="0.0" max="1.0" default="0.3" step="0.05" direction="Horizontal" />
+    <slider x="210" y="130" width="190" height="50" display="base-transmission" variable="base-transmission" min="0.0" max="0.3" default="0.06" step="0.01" direction="Horizontal" />
+    <slider x="210" y="190" width="190" height="50" display="hospital-capacity" variable="hospital-capacity" min="0.0" max="300.0" default="40.0" step="5.0" direction="Horizontal" units="beds" />
+    <slider x="210" y="250" width="190" height="50" display="rcce-intensity" variable="rcce-intensity" min="0.0" max="1.0" default="0.6" step="0.05" direction="Horizontal" />
+    <switch x="210" y="310" width="190" height="40" on="false" variable="radio-campaign?" display="radio-campaign?" />
+    <switch x="210" y="360" width="190" height="40" on="false" variable="engage-leaders?" display="engage-leaders?" />
+    <switch x="210" y="410" width="190" height="40" on="false" variable="safe-burial-program?" display="safe-burial-program?" />
+    <switch x="410" y="10" width="190" height="40" on="false" variable="contact-tracing?" display="contact-tracing?" />
+    <monitor x="410" y="60" width="190" height="60" fontSize="11" precision="0" display="cumulative cases">cum-cases</monitor>
+    <monitor x="410" y="130" width="190" height="60" fontSize="11" precision="0" display="cumulative deaths">cum-deaths</monitor>
+    <monitor x="410" y="200" width="190" height="60" fontSize="11" precision="1" display="CFR %">current-cfr</monitor>
+    <monitor x="410" y="270" width="190" height="60" fontSize="11" precision="0" display="active infections">active-infections</monitor>
+    <monitor x="410" y="340" width="190" height="60" fontSize="11" precision="0" display="% believe Ebola real">pct-believe-real</monitor>
+    <monitor x="610" y="10" width="190" height="60" fontSize="11" precision="0" display="beds used">beds-used</monitor>
+    <monitor x="610" y="80" width="190" height="60" fontSize="11" precision="0" display="unsafe burials">cum-unsafe-burials</monitor>
+    <plot x="610" y="150" width="190" height="160" display="Epidemic curve" xAxis="day" yAxis="people" xMin="0.0" xMax="10.0" yMin="0.0" yMax="10.0" autoPlotX="true" autoPlotY="true" legend="true"><setup /><update /><pen interval="1.0" mode="0" display="active" color="-2674135" legend="true"><setup /><update>plot active-infections</update></pen><pen interval="1.0" mode="0" display="susceptible" color="-10964943" legend="true"><setup /><update>plot count people with [infection-status = "susceptible"]</update></pen><pen interval="1.0" mode="0" display="recovered" color="-13663012" legend="true"><setup /><update>plot count people with [infection-status = "recovered"]</update></pen><pen interval="1.0" mode="0" display="deaths" color="-16777216" legend="true"><setup /><update>plot cum-deaths</update></pen></plot>
+    <plot x="810" y="10" width="190" height="160" display="Information &amp; Trust" xAxis="day" yAxis="%" xMin="0.0" xMax="10.0" yMin="0.0" yMax="10.0" autoPlotX="true" autoPlotY="true" legend="true"><setup /><update /><pen interval="1.0" mode="0" display="% believe real" color="-13345367" legend="true"><setup /><update>plot pct-believe-real</update></pen><pen interval="1.0" mode="0" display="avg trust-health" color="-10964943" legend="true"><setup /><update>plot 100 * mean [trust-health] of people</update></pen><pen interval="1.0" mode="0" display="% rumor carriers" color="-2674135" legend="true"><setup /><update>plot 100 * count people with [is-rumor-carrier?] / count people</update></pen></plot>
+    <plot x="810" y="180" width="190" height="160" display="Burials (safe vs unsafe)" xAxis="day" yAxis="count" xMin="0.0" xMax="10.0" yMin="0.0" yMax="10.0" autoPlotX="true" autoPlotY="true" legend="true"><setup /><update /><pen interval="1.0" mode="0" display="safe" color="-10964943" legend="true"><setup /><update>plot cum-safe-burials</update></pen><pen interval="1.0" mode="0" display="unsafe" color="-2674135" legend="true"><setup /><update>plot cum-unsafe-burials</update></pen></plot>
+  </widgets>
+  <info>## WHAT IS IT?
+
+A model created via NetLogo MCP Server.</info>
+  <turtleShapes>
+    <shape name="default" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="5" />
+        <point x="40" y="250" />
+        <point x="150" y="205" />
+        <point x="260" y="250" />
+      </polygon>
+    </shape>
+    <shape name="circle" rotatable="false" editableColorIndex="0">
+      <circle color="-1920102913" filled="true" marked="true" x="0" y="0" diameter="300" />
+    </shape>
+  </turtleShapes>
+  <linkShapes>
+    <shape name="default" curviness="0.0">
+      <lines>
+        <line x="-0.2" visible="false">
+          <dash value="0.0" />
+          <dash value="1.0" />
+        </line>
+        <line x="0.0" visible="true">
+          <dash value="1.0" />
+          <dash value="0.0" />
+        </line>
+        <line x="0.2" visible="false">
+          <dash value="0.0" />
+          <dash value="1.0" />
+        </line>
+      </lines>
+      <indicator>
+        <shape name="link direction" rotatable="true" editableColorIndex="0">
+          <line endX="90" startY="150" marked="true" color="-1920102913" endY="180" startX="150" />
+          <line endX="210" startY="150" marked="true" color="-1920102913" endY="180" startX="150" />
+        </shape>
+      </indicator>
+    </shape>
+  </linkShapes>
+</model>

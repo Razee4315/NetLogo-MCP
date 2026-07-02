@@ -64,14 +64,20 @@ def _persona_from_row(row: pd.Series, i: int, rng: np.random.Generator) -> Perso
     return Persona(
         id=f"hillstrom-{i:04d}",
         age=int(np.clip(rng.normal(42, 12), 20, 75)),
-        gender="female" if womens_buyer else ("male" if int(row["mens"]) else "unspecified"),
+        gender="female"
+        if womens_buyer
+        else ("male" if int(row["mens"]) else "unspecified"),
         location=str(row["zip_code"]).replace("Surburban", "suburban").lower(),
         income_bracket=income,
         occupation="retail customer",
         category_involvement=n(0.65 if womens_buyer else 0.30, 0.15),
-        price_sensitivity=n(0.7 if income == "low" else 0.5 if income == "mid" else 0.35, 0.12),
+        price_sensitivity=n(
+            0.7 if income == "low" else 0.5 if income == "mid" else 0.35, 0.12
+        ),
         brand_loyalty=n(0.2 if newbie else 0.55, 0.12),
-        current_solution="this store, occasionally" if not newbie else "first-time buyer here",
+        current_solution="this store, occasionally"
+        if not newbie
+        else "first-time buyer here",
         trust_in_ads=n(0.35, 0.12),
         channels={"email": email_prop, "paid_social": 0.4, "organic": 0.5},
         influence=n(0.35, 0.2),
@@ -89,14 +95,18 @@ def _persona_from_row(row: pd.Series, i: int, rng: np.random.Generator) -> Perso
 
 
 def _segment(row: pd.Series) -> str:
-    tier = "low" if row["history"] < 100 else ("mid" if row["history"] < 350 else "high")
+    tier = (
+        "low" if row["history"] < 100 else ("mid" if row["history"] < 350 else "high")
+    )
     return f"{str(row['zip_code']).lower()}|newbie={int(row['newbie'])}|{tier}"
 
 
 async def main() -> None:
     if not CSV.is_file():
-        print(f"hillstrom.csv not found at {CSV}.\n"
-              "Download it first — see validation/hillstrom/README.md")
+        print(
+            f"hillstrom.csv not found at {CSV}.\n"
+            "Download it first — see validation/hillstrom/README.md"
+        )
         return
 
     df = pd.read_csv(CSV)
@@ -132,37 +142,43 @@ async def main() -> None:
 
     # 'visit' in the dataset = visited the site within 2 weeks of the email.
     # Simulated analogue: opened AND (clicked / saved / bought / shared).
-    sim_visit = {
-        d.agent_index: d.state in ("clicked", "converted")
-        for d in decisions
-    }
+    sim_visit = {d.agent_index: d.state in ("clicked", "converted") for d in decisions}
 
     # Segment-level comparison.
     rows = []
     for i, r in sample.iterrows():
         rows.append(
-            {"segment": _segment(r), "real_visit": r["visit"],
-             "sim_visit": int(sim_visit.get(i, False))}
+            {
+                "segment": _segment(r),
+                "real_visit": r["visit"],
+                "sim_visit": int(sim_visit.get(i, False)),
+            }
         )
     seg = (
         pd.DataFrame(rows)
         .groupby("segment")
-        .agg(n=("real_visit", "size"), real=("real_visit", "mean"),
-             sim=("sim_visit", "mean"))
+        .agg(
+            n=("real_visit", "size"),
+            real=("real_visit", "mean"),
+            sim=("sim_visit", "mean"),
+        )
         .query("n >= 20")
         .sort_values("real", ascending=False)
     )
-    print(f"\nsimulated overall visit-rate: {np.mean(list(sim_visit.values())):.1%} "
-          f"(raw, uncalibrated) | real: {real_overall:.1%}")
+    print(
+        f"\nsimulated overall visit-rate: {np.mean(list(sim_visit.values())):.1%} "
+        f"(raw, uncalibrated) | real: {real_overall:.1%}"
+    )
     print(f"\nsegments (n>=20):\n{seg.round(3).to_string()}")
 
     from scipy.stats import spearmanr
 
     rho, p = spearmanr(seg["real"], seg["sim"])
     print("\n--- VERDICT ---")
-    print(f"segment-ranking Spearman rho = {rho:.3f} (p={p:.3f}, "
-          f"{len(seg)} segments)")
-    print(f"[{'PASS' if rho > 0.4 else 'FAIL'}] directional segment agreement (rho > 0.4)")
+    print(f"segment-ranking Spearman rho = {rho:.3f} (p={p:.3f}, {len(seg)} segments)")
+    print(
+        f"[{'PASS' if rho > 0.4 else 'FAIL'}] directional segment agreement (rho > 0.4)"
+    )
     print("Note: absolute rates need `calibrate`; ranking is the primary claim.")
 
 

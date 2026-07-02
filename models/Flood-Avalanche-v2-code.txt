@@ -1,0 +1,301 @@
+; ============================================================
+; FLOOD-TRIGGERED AVALANCHE SIMULATION  (v2)
+; Two mountains (side-by-side soil comparison) + valley road
+; + rainfall + per-slope danger gauge.
+;
+; WIDGETS TO CREATE (Interface tab):
+;   Sliders : flood-level (0-40)  soil-type (1-4)  soil-type-2 (1-4)
+;             snow-load (0-100)    rain-intensity (0-100)
+;   Switches: auto-rise?  rain?
+;   Buttons : setup        go (forever)
+;   Monitors: name-of soil-type        -> "Left soil"
+;             name-of soil-type-2      -> "Right soil"
+;             risk-of soil-type        -> "Left risk %"
+;             risk-of soil-type-2      -> "Right risk %"
+;             road-status-text         -> "Road"
+;             precision flood-level 1  -> "Flood"
+;             total-deposited          -> "Debris"
+;   Plots   : "Slope risk %"  pens: plot risk-of soil-type / plot risk-of soil-type-2
+;             "Avalanche activity" pens: plot total-deposited / plot count debris
+;   Soil key: 1=Loose Sand  2=Gravel  3=Wet Clay  4=Solid Rock
+; ============================================================
+
+globals [
+  surf base-surf water-pycor snowline
+  avalanche-active? total-deposited avalanche-count submerge-frac
+]
+
+patches-own [ ptype ]
+
+breed [debris a-debris]
+debris-own [ speed settled? ]
+breed [drops drop]
+
+;; ---------- SOIL LOOKUP ----------
+to-report cohesion-of [sid]
+  if sid = 1 [ report 0.18 ]
+  if sid = 2 [ report 0.34 ]
+  if sid = 3 [ report 0.52 ]
+  report 0.88
+end
+
+to-report capillary-of [sid]
+  if sid = 1 [ report 2 ]
+  if sid = 2 [ report 3 ]
+  if sid = 3 [ report 7 ]
+  report 1
+end
+
+to-report soilcolor-of [sid]
+  if sid = 1 [ report 46 ]
+  if sid = 2 [ report 33 ]
+  if sid = 3 [ report 27 ]
+  report 3
+end
+
+to-report name-of [sid]
+  if sid = 1 [ report "Loose Sand" ]
+  if sid = 2 [ report "Gravel" ]
+  if sid = 3 [ report "Wet Clay" ]
+  report "Solid Rock"
+end
+
+;; which soil applies at this patch (left vs right mountain)
+to-report patch-soil
+  report ifelse-value (pxcor < 0) [ soil-type ] [ soil-type-2 ]
+end
+
+;; ---------- SETUP ----------
+to setup
+  clear-all
+  resize-world -30 30 -20 20
+  set-patch-size 9
+  set total-deposited 0
+  set avalanche-count 0
+  set avalanche-active? false
+  build-terrain
+  paint-world
+  reset-ticks
+end
+
+to build-terrain
+  set surf n-values world-width [ i -> mountain-height (i + min-pxcor) ]
+  set base-surf surf
+end
+
+to-report mountain-height [x]
+  let floory (min-pycor + 3)
+  let lp 30 * exp (0 - ((x + 19) * (x + 19)) / (2 * 8 * 8))
+  let rp 30 * exp (0 - ((x - 19) * (x - 19)) / (2 * 8 * 8))
+  report round (floory + lp + rp)
+end
+
+to-report surf-at [x]
+  let i (x - min-pxcor)
+  if i < 0 [ set i 0 ]
+  if i > (world-width - 1) [ set i (world-width - 1) ]
+  report item i surf
+end
+
+;; ---------- PAINTING ----------
+to paint-world
+  set water-pycor (min-pycor + flood-level)
+  set snowline (max-pycor - 7 - (snow-load / 20))
+  ask patches [ if ptype != "deposited" [ classify-and-color ] ]
+  draw-road
+end
+
+to classify-and-color
+  let s surf-at pxcor
+  let sid patch-soil
+  ifelse pycor > s [
+    ifelse pycor <= water-pycor [
+      set ptype "water"
+      ifelse (water-pycor - pycor) < 1
+        [ set pcolor 97 ]
+        [ set pcolor scale-color blue (water-pycor - pycor) 46 -3 ]
+    ] [
+      set ptype "sky"
+      set pcolor scale-color sky pycor (min-pycor - 6) (max-pycor + 16)
+    ]
+  ] [
+    let depth (s - pycor)
+    ifelse (depth <= 2 and pycor >= snowline and snow-load > 5) [
+      set ptype "snow"
+      set pcolor white - (pxcor mod 2) * 0.4
+    ] [
+      ifelse depth <= 4 [
+        ifelse pycor <= (water-pycor + capillary-of sid) [
+          set ptype "saturated"
+          set pcolor (soilcolor-of sid - 4)
+        ] [
+          set ptype "soil"
+          set pcolor (soilcolor-of sid + (pxcor mod 2) * 0.4)
+        ]
+      ] [
+        set ptype "rock"
+        set pcolor (3 + ((pxcor + pycor) mod 3) * 0.4)
+      ]
+    ]
+  ]
+end
+
+;; asphalt road along the valley floor (x in -6..6)
+to draw-road
+  foreach (n-values 13 [ i -> i - 6 ]) [ x ->
+    let ry surf-at x
+    let p patch x ry
+    if p != nobody [
+      ask p [
+        if (ptype != "deposited" and pycor > water-pycor) [
+          set ptype "road"
+          ifelse (pxcor mod 3 = 0) [ set pcolor yellow ] [ set pcolor 4 ]
+        ]
+      ]
+    ]
+  ]
+end
+
+;; ---------- GO ----------
+to go
+  if auto-rise? and flood-level < 40 [ set flood-level precision (flood-level + 0.10) 2 ]
+  rain-step
+  update-environment
+  check-stability
+  move-debris
+  tick
+end
+
+to update-environment
+  set water-pycor (min-pycor + flood-level)
+  set snowline (max-pycor - 7 - (snow-load / 20))
+  ask patches [ if ptype != "deposited" [ classify-and-color ] ]
+  draw-road
+end
+
+;; ---------- RAIN ----------
+to rain-step
+  if rain? [
+    let nnew floor (rain-intensity / 8)
+    create-drops nnew [
+      setxy (min-pxcor + random world-width) max-pycor
+      set color 96
+      set shape "default"
+      set heading 198
+      set size 0.9
+    ]
+    if flood-level < 40 [ set flood-level precision (flood-level + rain-intensity * 0.004) 2 ]
+  ]
+  ask drops [
+    fd 1.6
+    if (ycor <= surf-at round xcor) or (ycor <= water-pycor) or (ycor <= min-pycor) [ die ]
+  ]
+end
+
+;; ---------- AVALANCHE ----------
+to check-stability
+  set avalanche-active? false
+  let peak-y max surf
+  set submerge-frac (water-pycor - min-pycor) / (peak-y - min-pycor)
+  spawn-side -30 -1 soil-type
+  spawn-side 0 30 soil-type-2
+end
+
+to spawn-side [xlo xhi sid]
+  let peak-y max surf
+  let satfrac (water-pycor + capillary-of sid - min-pycor) / (peak-y - min-pycor)
+  let failure (satfrac - cohesion-of sid)
+  if failure > 0 [
+    set avalanche-active? true
+    let rate failure * 6 * (0.5 + snow-load / 100)
+    let n floor rate
+    if random-float 1 < (rate - n) [ set n n + 1 ]
+    repeat n [
+      let x (xlo + random (xhi - xlo + 1))
+      let sy surf-at x
+      if sy > water-pycor [
+        let steep abs (surf-at (x + 2) - surf-at (x - 2))
+        if steep >= 1 [
+          create-debris 1 [
+            setxy x (sy + 0.5)
+            set settled? false
+            set speed 0
+            set-debris-look
+          ]
+          set avalanche-count avalanche-count + 1
+        ]
+      ]
+    ]
+  ]
+end
+
+to set-debris-look
+  let sid ifelse-value (xcor < 0) [ soil-type ] [ soil-type-2 ]
+  set shape "circle"
+  ifelse (ycor >= snowline and snow-load > 5) [ set color white - 1 ]
+                                              [ set color (soilcolor-of sid - 1.5) ]
+  set size 1.5
+end
+
+to move-debris
+  ask debris with [ not settled? ] [
+    let sl surf-at (round xcor - 1)
+    let sr surf-at (round xcor + 1)
+    let dir 1
+    ifelse sl < sr [ set dir -1 ]
+    [ ifelse sl > sr [ set dir 1 ] [ set dir ifelse-value (xcor < 0) [ -1 ] [ 1 ] ] ]
+    let slope (abs (sl - sr)) / 2
+    set speed speed * 0.7 + (0.4 + slope)
+    if speed > 2.5 [ set speed 2.5 ]
+    let nx xcor + dir * speed
+    if nx <= (min-pxcor + 1) [ set nx (min-pxcor + 1) ]
+    if nx >= (max-pxcor - 1) [ set nx (max-pxcor - 1) ]
+    let ny (surf-at round nx) + 0.5
+    setxy nx ny
+    set heading ifelse-value (dir > 0) [ 90 ] [ 270 ]
+    if (ny <= water-pycor + 1) or (slope < 0.25 and speed < 0.6) [ deposit ]
+  ]
+end
+
+to deposit
+  set settled? true
+  let i (round xcor - min-pxcor)
+  if (i >= 0 and i < world-width) [
+    set surf replace-item i surf (item i surf + 1)
+  ]
+  let p patch (round xcor) (round ycor)
+  if p != nobody [
+    ask p [ set pcolor [color] of myself  set ptype "deposited" ]
+  ]
+  set total-deposited total-deposited + 1
+  die
+end
+
+;; ---------- RISK / ROAD REPORTERS ----------
+to-report risk-of [sid]
+  let peak-y max surf
+  let satfrac (water-pycor + capillary-of sid - min-pycor) / (peak-y - min-pycor)
+  let r (satfrac - cohesion-of sid)
+  report max (list 0 (min (list 100 (round ((r + 0.08) * 200 + (snow-load - 50) * 0.2)))))
+end
+
+to-report road-base-y
+  report min (map [ x -> item (x - min-pxcor) base-surf ] (n-values 13 [ i -> i - 6 ]))
+end
+
+to-report road-flooded?
+  report water-pycor >= road-base-y
+end
+
+to-report road-blocked?
+  report any? patches with [ ptype = "deposited" and pxcor >= -6 and pxcor <= 6 ]
+end
+
+to-report road-status-text
+  ifelse road-flooded? [ report "FLOODED" ]
+  [ ifelse road-blocked? [ report "BLOCKED" ] [ report "clear" ] ]
+end
+
+to-report status-text
+  report ifelse-value avalanche-active? [ "*** AVALANCHE ***" ] [ "slope stable" ]
+end

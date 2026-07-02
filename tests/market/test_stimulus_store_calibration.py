@@ -113,9 +113,7 @@ stimuli:
 
 def test_campaign_rejects_duplicate_stimulus_ids(email_stimulus):
     with pytest.raises(ValueError):
-        CampaignSpec(
-            name="dup", audience="a", stimuli=[email_stimulus, email_stimulus]
-        )
+        CampaignSpec(name="dup", audience="a", stimuli=[email_stimulus, email_stimulus])
 
 
 # ── Event store ──────────────────────────────────────────────────────────────
@@ -200,9 +198,7 @@ def test_fit_to_base_rates_and_persistence():
     assert cal.apply("email", "gate", 0.55) == pytest.approx(base["gate"], abs=1e-6)
     path = cal.save()
     loaded = Calibration.load(path)
-    assert loaded.apply("email", "click", 0.4) == pytest.approx(
-        base["click"], abs=1e-6
-    )
+    assert loaded.apply("email", "click", 0.4) == pytest.approx(base["click"], abs=1e-6)
 
 
 def test_multi_pair_fit_slope():
@@ -218,9 +214,7 @@ def test_fit_from_csv(tmp_path):
     csv.write_text(
         "sent,opened,clicked,converted\n10000,2800,300,25\n", encoding="utf-8"
     )
-    cal = fit_from_csv(
-        str(csv), "email", {"gate": 0.5, "click": 0.3, "convert": 0.2}
-    )
+    cal = fit_from_csv(str(csv), "email", {"gate": 0.5, "click": 0.3, "convert": 0.2})
     assert cal.apply("email", "gate", 0.5) == pytest.approx(0.28, abs=1e-3)
     assert cal.apply("email", "click", 0.3) == pytest.approx(300 / 2800, abs=1e-3)
 
