@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/razee4315-netlogo-mcp-badge.png)](https://mseep.ai/app/razee4315-netlogo-mcp)
+
 <p align="center">
   <img src="assets/hero-banner.png" alt="NetLogo MCP — Talk to NetLogo. AI runs the simulation." width="800">
 </p>
