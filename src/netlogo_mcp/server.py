@@ -40,7 +40,13 @@ from typing import Any, TypeVar
 
 from fastmcp import FastMCP
 
-from .config import get_eager_start, get_gui_mode, get_jvm_path, get_netlogo_home
+from .config import (
+    get_eager_start,
+    get_gui_mode,
+    get_jvm_path,
+    get_netlogo_home,
+    gui_unavailable_reason,
+)
 
 logger = logging.getLogger("netlogo_mcp")
 T = TypeVar("T")
@@ -78,6 +84,17 @@ def start_netlogo() -> tuple[Any, str | None]:
     jvm_path = get_jvm_path()
     gui = get_gui_mode()
     mode_str = "GUI (live window)" if gui else "headless"
+
+    # If the user asked for a GUI but the platform can't deliver one, say so
+    # plainly instead of silently falling back (pynetlogo forces headless on
+    # macOS). Keeps the logs honest with what server_info reports.
+    reason = gui_unavailable_reason()
+    if reason is not None and os.environ.get("NETLOGO_GUI", "true").lower() not in (
+        "false",
+        "0",
+        "no",
+    ):
+        logger.warning("GUI requested but unavailable — running headless. %s", reason)
 
     logger.info("Starting Java Virtual Machine...")
     logger.info(

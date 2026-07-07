@@ -5,11 +5,32 @@ at any time without triggering JVM startup.
 """
 
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def gui_unavailable_reason() -> str | None:
+    """Return why a live GUI is impossible on this platform, else None.
+
+    pynetlogo forces headless on macOS (``core.py`` sets
+    ``java.awt.headless=true`` and overrides ``gui=False`` when
+    ``sys.platform == "darwin"``). macOS AWT/Cocoa needs the process's first
+    thread with ``-XstartOnFirstThread``, which an MCP stdio server can't cede
+    to Swing, so an embedded live window is not available. The engine still
+    runs — just headlessly.
+    """
+    if sys.platform == "darwin":
+        return (
+            "Live GUI is not available on macOS: pynetlogo runs NetLogo "
+            "headless there (macOS AWT requires the process main thread). "
+            "The model runs headlessly and export_view still works; open the "
+            "generated .nlogox in the NetLogo desktop app to watch it live."
+        )
+    return None
 
 
 def get_netlogo_home() -> str:
@@ -68,7 +89,13 @@ def get_gui_mode() -> bool:
 
     Defaults to GUI mode (True) so new users see simulations running.
     Power users can set NETLOGO_GUI=false for headless operation.
+
+    Forced to False on platforms where a live window is impossible (macOS —
+    see ``gui_unavailable_reason``), so the server's reported state matches
+    what pynetlogo actually does instead of falsely claiming GUI mode.
     """
+    if gui_unavailable_reason() is not None:
+        return False
     val = os.environ.get("NETLOGO_GUI", "true").lower()
     return val not in ("false", "0", "no")
 

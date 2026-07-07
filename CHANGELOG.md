@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- macOS GUI mismatch ([#30](https://github.com/Razee4315/NetLogo-MCP/issues/30)):
+  `pynetlogo` forces headless on macOS (it sets `java.awt.headless=true`),
+  so a live NetLogo window could never appear there — yet `server_info` still
+  reported `gui_mode: true`, and the server logged "GUI (live window)". The
+  server now recognizes this: `get_gui_mode()` returns `false` on macOS,
+  startup logs a clear "GUI requested but unavailable — running headless"
+  warning, and `server_info` includes a `gui_unavailable_reason` explaining
+  it and pointing users to open the generated `.nlogox` in the NetLogo desktop
+  app to watch a model live. The engine itself was always working headlessly
+  (`export_view`, `run_simulation`, etc. produce correct results).
+
 ## [1.0.2] - 2026-06-06
 
 ### Fixed

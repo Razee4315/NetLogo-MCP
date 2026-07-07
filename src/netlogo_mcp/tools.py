@@ -30,6 +30,7 @@ from .config import (
     get_gui_mode,
     get_models_dir,
     get_netlogo_home,
+    gui_unavailable_reason,
 )
 from .server import mcp
 
@@ -1516,6 +1517,9 @@ async def server_info(ctx: Context) -> str:
         "comses_max_download_mb": get_comses_max_download_mb(),
         "current_model_path": _current_model_path(ctx),
     }
+    reason = gui_unavailable_reason()
+    if reason is not None:
+        info["gui_unavailable_reason"] = reason
     try:
         info["netlogo_home"] = get_netlogo_home()
     except OSError as exc:

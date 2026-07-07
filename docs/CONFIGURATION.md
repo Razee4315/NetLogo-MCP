@@ -24,7 +24,7 @@ JAVA_HOME=C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot
 | `NETLOGO_HOME` | Yes | Path to your NetLogo installation directory |
 | `JAVA_HOME` | No | Path to your JDK directory (auto-detected if not set) |
 | `NETLOGO_MODELS_DIR` | No | Directory for model files (defaults to the current working directory's `./models`) |
-| `NETLOGO_GUI` | No | `"true"` (default) for live GUI window, `"false"` for headless |
+| `NETLOGO_GUI` | No | `"true"` (default) for live GUI window, `"false"` for headless. **No effect on macOS** — see below. |
 | `NETLOGO_EAGER_START` | No | `"false"` (default) — the JVM boots lazily on the first tool call that needs it. Set `"true"` to boot at server startup (pre-warms the 30-60s JVM start, but opens the NetLogo window the moment your MCP client connects). |
 | `NETLOGO_EXPORTS_DIR` | No | Directory for exported views/worlds (defaults to the current working directory's `./exports`) |
 | `COMSES_MAX_DOWNLOAD_MB` | No | Max CoMSES archive size in MB (default 50). Enforced mid-stream. |
@@ -40,6 +40,21 @@ JAVA_HOME=C:/Program Files/Eclipse Adoptium/jdk-25.0.2.10-hotspot
 
 The mode is set at startup — to switch, change the env var and restart your
 client.
+
+### macOS: live GUI is not available
+
+On macOS the server always runs **headless**, regardless of `NETLOGO_GUI`.
+The underlying `pynetlogo` library forces headless mode on macOS (it sets
+`java.awt.headless=true`), because macOS AWT/Cocoa requires windows to be
+created on the process's main thread with `-XstartOnFirstThread` — which an
+MCP stdio server can't cede to Swing. To reflect this honestly, `get_gui_mode`
+returns `false` on macOS and `server_info` includes a `gui_unavailable_reason`
+field.
+
+The engine still runs fully: `command`, `report`, `run_simulation`, and
+`export_view` all work and produce correct results/snapshots. To *watch* a
+model live on macOS, open the generated `.nlogox` file (in your models
+directory) in the NetLogo desktop app.
 
 ## Startup timing
 
